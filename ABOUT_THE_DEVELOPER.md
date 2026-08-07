@@ -5,13 +5,13 @@ This file is completed by the student during Sprint 0 – Developer Onboarding.
 ## Developer Information
 
 **Name:**  
-Write your full name here.
+Mc Lloyd Silverio. Ilagan
 
 **Student Number:**  
-Write your student number here.
+1-241-02669
 
 **Section:**  
-Write your section here.
+J4A
 
 **Technology Stack:**  
 C++ with Drogon
@@ -19,39 +19,43 @@ C++ with Drogon
 ## Development Environment
 
 **Operating System:**  
-Write your operating system here.
+Windows 11
 
 **IDE / Editor:**  
-Write the development environment you are using.
+VSCode
 
 **Compiler:**  
-Write the compiler and version you are using.
+MSVC 19.44.35219.0
 
 **CMake Version:**  
-Write your CMake version here.
+4.4.0
 
 **Drogon Version:**  
-Write the installed Drogon version here.
+1.9.13
 
 ## Why did you choose this technology stack?
 
-Write a short explanation of why you selected C++ with Drogon for the Community Services Management System.
+I chose PHP before but i already know since LARAVEL is the stack i crunching in my Internship days, i got tired and wanted to have a bit of challenge. 
 
 ## Initial Learning Reflection
 
 Briefly answer the following:
 
 1. What experience do you already have with C++?
+    I have experience in my high school days, i did code a calculator program using turbo C++
 2. What do you expect to learn from this project?
+    To learn terminologies and memorize it since i have trouble demoing the feature we've implemented during my internship days (but i do know how it works, di lang po talaga kami magkaintindihan ng senior ko huhu)
 3. What part of the technology stack do you expect to be most challenging?
+    since C++ is a low level language, the structure itself and its mindblowing memorization will be my archnemesis
 4. What is your personal goal for the semester?
+    to be a complete developer that can communicate with the project manager without any conflict.
 
 ## Academic Integrity Confirmation
 
 I confirm that the work committed to this repository will represent my own development work unless collaboration is explicitly permitted by the instructor.
 
 **Name:**  
-Write your name here.
+Mc Lloyd Silverio. Ilagan
 
 **Date:**  
-Write the date here.
+8/7/2026
