@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
-project(csms_cpp_test CXX)
 
-add_executable(${PROJECT_NAME} test_main.cc)
+enable_testing()
+
+add_executable(csms_cpp_test test_main.cc)
 
 # ##############################################################################
 # If you include the drogon source code locally in your project, use this method
@@ -9,6 +10,6 @@ add_executable(${PROJECT_NAME} test_main.cc)
 # target_link_libraries(${PROJECT_NAME} PRIVATE drogon)
 #
 # and comment out the following lines
-target_link_libraries(${PROJECT_NAME} PRIVATE Drogon::Drogon)
+target_link_libraries(csms_cpp_test PRIVATE Drogon::Drogon)
 
-ParseAndAddDrogonTests(${PROJECT_NAME})
+ParseAndAddDrogonTests(csms_cpp_test)
