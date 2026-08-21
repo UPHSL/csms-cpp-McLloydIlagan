@@ -4,6 +4,8 @@ enable_testing()
 
 add_executable(csms_cpp_test test_main.cc)
 
+target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
+
 # ##############################################################################
 # If you include the drogon source code locally in your project, use this method
 # to add drogon 
