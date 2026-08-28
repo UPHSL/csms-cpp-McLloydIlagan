@@ -1,15 +1,40 @@
 #define DROGON_TEST_MAIN
 #include <drogon/drogon_test.h>
 #include <drogon/drogon.h>
+
 #include "models/Resident.h"
+#include "models/ResidentValidator.h"
+
+#include <algorithm>
+#include <cassert>
+#include <string>
+#include <vector>
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+
+bool containsValidationError(
+    const std::vector<std::string>& errors,
+    const std::string& field)
+{
+    return std::find(errors.begin(), errors.end(), field) != errors.end();
+}
+
+// ---------------------------------------------------------------------------
+// Starter test — must continue to pass
+// ---------------------------------------------------------------------------
 
 DROGON_TEST(BasicTest)
 {
-    // Existing placeholder test — must continue to pass
+    // Existing placeholder test
 }
 
+// ---------------------------------------------------------------------------
+// T01 Tests
+// ---------------------------------------------------------------------------
+
 // Test 1: Resident Creation
-// Verify that a Resident can be created using valid Resident information.
 DROGON_TEST(ResidentCreationTest)
 {
     csms::Resident resident(
@@ -19,7 +44,7 @@ DROGON_TEST(ResidentCreationTest)
         "123 Mabini St, Manila",
         "09171234567",
         "juan.delacruz@email.com",
-        csms::ResidentStatus::Active
+        "Active"
     );
 
     CHECK(resident.getId() == 1);
@@ -28,7 +53,6 @@ DROGON_TEST(ResidentCreationTest)
 }
 
 // Test 2: Resident Information Access
-// Verify that Resident information can be assigned and retrieved correctly.
 DROGON_TEST(ResidentInformationAccessTest)
 {
     csms::Resident resident;
@@ -39,7 +63,7 @@ DROGON_TEST(ResidentInformationAccessTest)
     resident.setAddress("456 Rizal Ave, Quezon City");
     resident.setContactNumber("09281234567");
     resident.setEmail("maria.santos@email.com");
-    resident.setStatus(csms::ResidentStatus::Active);
+    resident.setStatus("Active");
 
     CHECK(resident.getId() == 2);
     CHECK(resident.getFirstName() == "Maria");
@@ -47,11 +71,10 @@ DROGON_TEST(ResidentInformationAccessTest)
     CHECK(resident.getAddress() == "456 Rizal Ave, Quezon City");
     CHECK(resident.getContactNumber() == "09281234567");
     CHECK(resident.getEmail() == "maria.santos@email.com");
-    CHECK(resident.getStatus() == csms::ResidentStatus::Active);
+    CHECK(resident.getStatus() == "Active");
 }
 
 // Test 3: Resident Status
-// Verify that the Resident model can represent the Active status.
 DROGON_TEST(ResidentStatusTest)
 {
     csms::Resident resident(
@@ -61,31 +84,211 @@ DROGON_TEST(ResidentStatusTest)
         "789 Bonifacio St, Pasig",
         "09391234567",
         "pedro.reyes@email.com",
-        csms::ResidentStatus::Active
+        "Active"
     );
 
-    CHECK(resident.getStatus() == csms::ResidentStatus::Active);
+    CHECK(resident.getStatus() == "Active");
 }
 
-int main(int argc, char** argv) 
+// ---------------------------------------------------------------------------
+// T02 Validation Test Functions
+// ---------------------------------------------------------------------------
+
+void testValidResidentInformationPassesValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    assert(validator.isValid(resident));
+}
+
+void testMissingFirstNameFailsValidation()
+{
+    csms::Resident resident(
+        "",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "firstName"));
+}
+
+void testMissingLastNameFailsValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "lastName"));
+}
+
+void testMissingAddressFailsValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "Dela Cruz",
+        "",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "address"));
+}
+
+void testWhitespaceOnlyRequiredInformationFailsValidation()
+{
+    csms::Resident resident(
+        "   ",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "firstName"));
+}
+
+void testInvalidContactNumberFailsValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "0917ABC4567",
+        "juan@example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "contactNumber"));
+}
+
+void testInvalidEmailFailsValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan.example.com"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "email"));
+}
+
+void testSupportedResidentStatusesPassValidation()
+{
+    csms::Resident activeResident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+
+    csms::Resident inactiveResident(
+        "Maria",
+        "Santos",
+        "Barangay Santo Tomas",
+        "09181234567",
+        "maria@example.com",
+        "Inactive"
+    );
+
+    csms::ResidentValidator validator;
+
+    assert(validator.isValid(activeResident));
+    assert(validator.isValid(inactiveResident));
+}
+
+void testUnsupportedResidentStatusFailsValidation()
+{
+    csms::Resident resident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com",
+        "Unknown"
+    );
+
+    csms::ResidentValidator validator;
+    const auto errors = validator.validate(resident);
+
+    assert(!validator.isValid(resident));
+    assert(containsValidationError(errors, "status"));
+}
+
+// ---------------------------------------------------------------------------
+// T02 Drogon test wrapper — runs all T02 scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentValidationTest)
+{
+    testValidResidentInformationPassesValidation();
+    testMissingFirstNameFailsValidation();
+    testMissingLastNameFailsValidation();
+    testMissingAddressFailsValidation();
+    testWhitespaceOnlyRequiredInformationFailsValidation();
+    testInvalidContactNumberFailsValidation();
+    testInvalidEmailFailsValidation();
+    testSupportedResidentStatusesPassValidation();
+    testUnsupportedResidentStatusFailsValidation();
+}
+
+// ---------------------------------------------------------------------------
+// Test runner
+// ---------------------------------------------------------------------------
+
+int main(int argc, char** argv)
 {
     using namespace drogon;
 
     std::promise<void> p1;
     std::future<void> f1 = p1.get_future();
 
-    // Start the main loop on another thread
     std::thread thr([&]() {
-        // Queues the promise to be fulfilled after starting the loop
         app().getLoop()->queueInLoop([&p1]() { p1.set_value(); });
         app().run();
     });
 
-    // The future is only satisfied after the event loop started
     f1.get();
     int status = test::run(argc, argv);
 
-    // Ask the event loop to shutdown and wait
     app().getLoop()->queueInLoop([]() { app().quit(); });
     thr.join();
     return status;

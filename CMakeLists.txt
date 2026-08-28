@@ -25,6 +25,7 @@ add_executable(${PROJECT_NAME}
     main.cc
     controllers/HomeController.cc
     controllers/HealthController.cc
+    models/ResidentValidator.cc
 )
 
 # ##############################################################################
