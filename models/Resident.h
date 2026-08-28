@@ -4,27 +4,44 @@
 
 namespace csms {
 
-
-enum class ResidentStatus
-{
-    Active
-};
-
-
-// Resident domain model.
-
+/**
+ * Resident domain model.
+ *
+ * Represents a person registered within the community. This model is the
+ * foundation for resident-related features in the CSMS.
+ *
+ * Status is represented as a std::string to support open-ended values
+ * and validation by ResidentValidator.
+ */
 class Resident
 {
 public:
     Resident() = default;
 
+    // Constructor without id — id is unassigned before persistence
+    Resident(const std::string& firstName,
+             const std::string& lastName,
+             const std::string& address,
+             const std::string& contactNumber,
+             const std::string& email,
+             const std::string& status = "Active")
+        : firstName_(firstName),
+          lastName_(lastName),
+          address_(address),
+          contactNumber_(contactNumber),
+          email_(email),
+          status_(status)
+    {
+    }
+
+    // Constructor with id — used after persistence assigns an id
     Resident(int id,
              const std::string& firstName,
              const std::string& lastName,
              const std::string& address,
              const std::string& contactNumber,
              const std::string& email,
-             ResidentStatus status = ResidentStatus::Active)
+             const std::string& status = "Active")
         : id_(id),
           firstName_(firstName),
           lastName_(lastName),
@@ -42,7 +59,7 @@ public:
     const std::string& getAddress() const { return address_; }
     const std::string& getContactNumber() const { return contactNumber_; }
     const std::string& getEmail() const { return email_; }
-    ResidentStatus getStatus() const { return status_; }
+    const std::string& getStatus() const { return status_; }
 
     // Setters
     void setId(int id) { id_ = id; }
@@ -51,7 +68,7 @@ public:
     void setAddress(const std::string& address) { address_ = address; }
     void setContactNumber(const std::string& contactNumber) { contactNumber_ = contactNumber; }
     void setEmail(const std::string& email) { email_ = email; }
-    void setStatus(ResidentStatus status) { status_ = status; }
+    void setStatus(const std::string& status) { status_ = status; }
 
 private:
     int id_{0};
@@ -60,7 +77,7 @@ private:
     std::string address_;
     std::string contactNumber_;
     std::string email_;
-    ResidentStatus status_{ResidentStatus::Active};
+    std::string status_{"Active"};
 };
 
 } // namespace csms
