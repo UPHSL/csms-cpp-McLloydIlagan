@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 
 enable_testing()
 
-add_executable(csms_cpp_test test_main.cc)
+add_executable(csms_cpp_test test_main.cc ../models/ResidentValidator.cc)
 
 target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
 
