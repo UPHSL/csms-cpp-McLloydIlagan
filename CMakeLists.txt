@@ -19,6 +19,11 @@ endif ()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# /FS serializes PDB writes on MSVC parallel builds, preventing C1041 errors.
+if (MSVC)
+    add_compile_options(/FS)
+endif()
+
 enable_testing()
 
 add_executable(${PROJECT_NAME}
@@ -26,6 +31,8 @@ add_executable(${PROJECT_NAME}
     controllers/HomeController.cc
     controllers/HealthController.cc
     models/ResidentValidator.cc
+    database/Database.cc
+    repositories/ResidentRepository.cc
 )
 
 # ##############################################################################
@@ -37,6 +44,9 @@ add_executable(${PROJECT_NAME}
 # and comment out the following lines
 find_package(Drogon CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE Drogon::Drogon)
+
+find_package(SQLite3 REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE SQLite3_lib)
 
 # ##############################################################################
 
@@ -59,7 +69,9 @@ aux_source_directory(models MODEL_SRC)
 
 target_include_directories(${PROJECT_NAME}
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-                                   ${CMAKE_CURRENT_SOURCE_DIR}/models)
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/models
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/database
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/repositories)
 target_sources(${PROJECT_NAME}
                PRIVATE
                ${SRC_DIR}
