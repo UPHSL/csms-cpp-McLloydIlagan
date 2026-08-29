@@ -20,6 +20,11 @@ compile_commands.json
 *.dll
 *.exe
 
+# SQLite database files (runtime data — must not be committed)
+*.db
+*.sqlite
+*.sqlite3
+
 # Logs and runtime files
 logs/
 *.log
