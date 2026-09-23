@@ -150,4 +150,119 @@ std::optional<Resident> ResidentRepository::findById(int residentId)
     return std::nullopt;
 }
 
+std::vector<Resident> ResidentRepository::findAll()
+{
+    // ORDER BY uses COLLATE NOCASE so the sort is case-insensitive.
+    // id is the final tie-breaker when two Residents share both names.
+    const char* sql =
+        "SELECT id, first_name, last_name, address, "
+        "       contact_number, email, status "
+        "FROM residents "
+        "ORDER BY last_name  COLLATE NOCASE ASC, "
+        "         first_name COLLATE NOCASE ASC, "
+        "         id ASC;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(),
+        sql,
+        -1,
+        &stmt,
+        nullptr
+    );
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare findAll SELECT: ") +
+            sqlite3_errmsg(database_.handle())
+        );
+    }
+
+    return collectRows(stmt);
+}
+
+std::vector<Resident> ResidentRepository::searchByName(
+    const std::string& searchTerm)
+{
+    // Build the LIKE pattern: %searchTerm%
+    // The search is performed at the database level — no in-memory
+    // filtering. SQLite LIKE is case-insensitive for ASCII characters
+    // by default, which satisfies the case-insensitive requirement.
+    //
+    // DISTINCT prevents a Resident from appearing twice when both
+    // first_name and last_name match the same term.
+    const char* sql =
+        "SELECT DISTINCT id, first_name, last_name, address, "
+        "       contact_number, email, status "
+        "FROM residents "
+        "WHERE first_name LIKE ? OR last_name LIKE ? "
+        "ORDER BY last_name  COLLATE NOCASE ASC, "
+        "         first_name COLLATE NOCASE ASC, "
+        "         id ASC;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(),
+        sql,
+        -1,
+        &stmt,
+        nullptr
+    );
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare searchByName SELECT: ") +
+            sqlite3_errmsg(database_.handle())
+        );
+    }
+
+    // Wrap the search term in % wildcards for partial matching.
+    const std::string pattern = "%" + searchTerm + "%";
+
+    // Bind the same pattern to both placeholders (first_name and last_name).
+    sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, pattern.c_str(), -1, SQLITE_TRANSIENT);
+
+    return collectRows(stmt);
+}
+
+std::vector<Resident> ResidentRepository::collectRows(sqlite3_stmt* stmt)
+{
+    std::vector<Resident> results;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const int id = sqlite3_column_int(stmt, 0);
+
+        const std::string firstName = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 1));
+
+        const std::string lastName = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 2));
+
+        const std::string address = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 3));
+
+        const std::string contactNumber = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 4));
+
+        const std::string email = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 5));
+
+        const std::string status = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 6));
+
+        results.emplace_back(
+            id, firstName, lastName, address, contactNumber, email, status
+        );
+    }
+
+    sqlite3_finalize(stmt);
+    return results;
+}
+
 } // namespace csms
