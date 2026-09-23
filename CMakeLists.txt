@@ -34,6 +34,7 @@ add_executable(${PROJECT_NAME}
     database/Database.cc
     repositories/ResidentRepository.cc
     services/ResidentRegistrationService.cc
+    services/ResidentQueryService.cc
 )
 
 # ##############################################################################

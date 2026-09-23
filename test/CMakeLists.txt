@@ -8,6 +8,7 @@ add_executable(csms_cpp_test
     ../database/Database.cc
     ../repositories/ResidentRepository.cc
     ../services/ResidentRegistrationService.cc
+    ../services/ResidentQueryService.cc
 )
 
 target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
