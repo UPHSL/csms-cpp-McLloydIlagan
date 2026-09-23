@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}
     models/ResidentValidator.cc
     database/Database.cc
     repositories/ResidentRepository.cc
+    services/ResidentRegistrationService.cc
 )
 
 # ##############################################################################
@@ -71,7 +72,8 @@ target_include_directories(${PROJECT_NAME}
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                                    ${CMAKE_CURRENT_SOURCE_DIR}/models
                                    ${CMAKE_CURRENT_SOURCE_DIR}/database
-                                   ${CMAKE_CURRENT_SOURCE_DIR}/repositories)
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/repositories
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/services)
 target_sources(${PROJECT_NAME}
                PRIVATE
                ${SRC_DIR}

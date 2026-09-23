@@ -564,3 +564,322 @@ int main(int argc, char** argv)
     thr.join();
     return status;
 }
+
+// ---------------------------------------------------------------------------
+// T04 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ResidentRegistrationService.h"
+#include <sqlite3.h>
+
+// ---------------------------------------------------------------------------
+// T04 Helper — valid Resident for registration tests
+// ---------------------------------------------------------------------------
+
+static csms::Resident makeValidResidentForRegistration()
+{
+    return csms::Resident(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// T04 Helper — count rows in the residents table
+//
+// Used by Test 7 to prove that an invalid Resident was never persisted.
+// Opens its own short-lived connection so it does not interfere with the
+// Database instance held by the test.
+// ---------------------------------------------------------------------------
+
+static int countResidentsInDatabase(const std::string& databasePath)
+{
+    sqlite3* db = nullptr;
+    sqlite3_open(databasePath.c_str(), &db);
+
+    const char* sql = "SELECT COUNT(*) FROM residents";
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    sqlite3_step(stmt);
+
+    const int count = sqlite3_column_int(stmt, 0);
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return count;
+}
+
+// ---------------------------------------------------------------------------
+// T04 Test Helper Functions
+//
+// All eight T04 scenarios follow the same pattern as T03:
+// plain assert()-based helpers called from one DROGON_TEST wrapper.
+//
+// Each helper creates its own isolated temporary SQLite file via
+// makeTempDbPath() so tests cannot share state.
+//
+// T03 architecture note:
+//   ResidentRepository takes Database& — not a file path directly.
+//   We always construct: Database db(path); ResidentRepository repo(db);
+//
+// getId() returns int — 0 means unassigned (T01 sentinel).
+// After persistence, getId() > 0.
+// ---------------------------------------------------------------------------
+
+// Test 1 — Register a valid Resident
+void testRegisterValidResident()
+{
+    const std::string dbPath = makeTempDbPath("t04_register");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident resident = makeValidResidentForRegistration();
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(resident);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+        assert(result.errors.empty());
+    }
+}
+
+// Test 2 — Registered Resident receives a database-generated identifier
+void testRegisteredResidentReceivesIdentifier()
+{
+    const std::string dbPath = makeTempDbPath("t04_identifier");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident resident = makeValidResidentForRegistration();
+
+        // Before registration, id is 0 — the T01 unassigned sentinel.
+        assert(resident.getId() == 0);
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(resident);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+
+        // After registration, SQLite must have assigned a positive id.
+        assert(result.resident->getId() > 0);
+    }
+}
+
+// Test 3 — Registered Resident is actually persisted in SQLite
+void testRegisteredResidentIsPersisted()
+{
+    const std::string dbPath = makeTempDbPath("t04_persisted");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident resident = makeValidResidentForRegistration();
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(resident);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+
+        const int residentId = result.resident->getId();
+        assert(residentId > 0);
+
+        // Verify the record actually exists in SQLite.
+        const std::optional<csms::Resident> stored =
+            repo.findById(residentId);
+
+        assert(stored.has_value());
+    }
+}
+
+// Test 4 — Resident information is preserved through registration
+void testRegisteredResidentInformationIsPreserved()
+{
+    const std::string dbPath = makeTempDbPath("t04_information");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident resident = makeValidResidentForRegistration();
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(resident);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+
+        const int residentId = result.resident->getId();
+
+        const std::optional<csms::Resident> stored =
+            repo.findById(residentId);
+
+        assert(stored.has_value());
+        assert(stored->getFirstName()     == "Juan");
+        assert(stored->getLastName()      == "Dela Cruz");
+        assert(stored->getAddress()       == "Barangay Santo Tomas");
+        // Leading zero must be preserved — stored as TEXT.
+        assert(stored->getContactNumber() == "09171234567");
+        assert(stored->getEmail()         == "juan@example.com");
+        assert(stored->getStatus()        == "Active");
+    }
+}
+
+// Test 5 — Default Active status is preserved through registration
+void testRegisteredResidentPreservesDefaultActiveStatus()
+{
+    const std::string dbPath = makeTempDbPath("t04_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident resident = makeValidResidentForRegistration();
+
+        // T01 default status — must not be set explicitly here.
+        assert(resident.getStatus() == "Active");
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(resident);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+        assert(result.resident->getStatus() == "Active");
+    }
+}
+
+// Test 6 — Invalid Resident registration fails
+void testInvalidResidentRegistrationFails()
+{
+    const std::string dbPath = makeTempDbPath("t04_invalid");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        // Empty first name — T02 validator must reject this.
+        csms::Resident invalidResident(
+            "",
+            "Dela Cruz",
+            "Barangay Santo Tomas",
+            "09171234567",
+            "juan@example.com"
+        );
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(invalidResident);
+
+        assert(!result.success);
+        assert(!result.resident.has_value());
+        assert(!result.errors.empty());
+    }
+}
+
+// Test 7 — Invalid Resident is not persisted
+void testInvalidResidentIsNotPersisted()
+{
+    const std::string dbPath = makeTempDbPath("t04_not_persisted");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident invalidResident(
+            "",
+            "Dela Cruz",
+            "Barangay Santo Tomas",
+            "09171234567",
+            "juan@example.com"
+        );
+
+        const int countBefore = countResidentsInDatabase(dbPath);
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(invalidResident);
+
+        const int countAfter = countResidentsInDatabase(dbPath);
+
+        assert(!result.success);
+
+        // Row count must not have changed — invalid Resident must not
+        // have reached the repository.
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 8 — Registration result identifies the failing validation field
+void testRegistrationReturnsValidationErrors()
+{
+    const std::string dbPath = makeTempDbPath("t04_errors");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentRegistrationService service(validator, repo);
+
+        csms::Resident invalidResident(
+            "",
+            "Dela Cruz",
+            "Barangay Santo Tomas",
+            "09171234567",
+            "juan@example.com"
+        );
+
+        const csms::ResidentRegistrationResult result =
+            service.registerResident(invalidResident);
+
+        assert(!result.success);
+
+        // The errors vector must contain "firstName" somewhere.
+        // std::find is used because there may be multiple errors.
+        const auto it = std::find(
+            result.errors.begin(),
+            result.errors.end(),
+            "firstName"
+        );
+
+        assert(it != result.errors.end());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T04 Drogon test wrapper — runs all T04 registration scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentRegistrationTest)
+{
+    testRegisterValidResident();
+    testRegisteredResidentReceivesIdentifier();
+    testRegisteredResidentIsPersisted();
+    testRegisteredResidentInformationIsPreserved();
+    testRegisteredResidentPreservesDefaultActiveStatus();
+    testInvalidResidentRegistrationFails();
+    testInvalidResidentIsNotPersisted();
+    testRegistrationReturnsValidationErrors();
+}
