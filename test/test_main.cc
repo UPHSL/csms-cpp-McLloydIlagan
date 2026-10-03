@@ -883,3 +883,305 @@ DROGON_TEST(ResidentRegistrationTest)
     testInvalidResidentIsNotPersisted();
     testRegistrationReturnsValidationErrors();
 }
+
+// ---------------------------------------------------------------------------
+// T05 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ResidentQueryService.h"
+
+// ---------------------------------------------------------------------------
+// T05 Helper — save a resident directly through the repository
+// ---------------------------------------------------------------------------
+
+static void saveResident(
+    csms::ResidentRepository& repo,
+    const std::string& firstName,
+    const std::string& lastName,
+    const std::string& status = "Active")
+{
+    csms::Resident r(
+        firstName,
+        lastName,
+        "Test Address",
+        "09171234567",
+        "test@example.com",
+        status
+    );
+    repo.save(r);
+}
+
+// ---------------------------------------------------------------------------
+// T05 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — List all persisted Residents
+void testListAllResidents()
+{
+    const std::string dbPath = makeTempDbPath("t05_list_all");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan",  "Cruz");
+        saveResident(repo, "Maria", "Santos");
+        saveResident(repo, "Pedro", "Reyes");
+
+        const std::vector<csms::Resident> result =
+            service.listResidents();
+
+        assert(result.size() == 3u);
+    }
+}
+
+// Test 2 — Empty database returns empty collection
+void testListResidentsWhenEmpty()
+{
+    const std::string dbPath = makeTempDbPath("t05_list_empty");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        const std::vector<csms::Resident> result =
+            service.listResidents();
+
+        // Must return empty vector, not crash or throw.
+        assert(result.empty());
+    }
+}
+
+// Test 3 — Listing uses required deterministic ordering
+void testListResidentsOrdering()
+{
+    const std::string dbPath = makeTempDbPath("t05_ordering");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        // Insert in an order that differs from the expected display order.
+        saveResident(repo, "Ana",   "Santos");
+        saveResident(repo, "Pedro", "Cruz");
+        saveResident(repo, "Maria", "Andres");
+        saveResident(repo, "Juan",  "Cruz");
+
+        const std::vector<csms::Resident> result =
+            service.listResidents();
+
+        assert(result.size() == 4u);
+
+        // Expected order: Andres/Maria, Cruz/Juan, Cruz/Pedro, Santos/Ana
+        assert(result[0].getLastName()  == "Andres");
+        assert(result[0].getFirstName() == "Maria");
+
+        assert(result[1].getLastName()  == "Cruz");
+        assert(result[1].getFirstName() == "Juan");
+
+        assert(result[2].getLastName()  == "Cruz");
+        assert(result[2].getFirstName() == "Pedro");
+
+        assert(result[3].getLastName()  == "Santos");
+        assert(result[3].getFirstName() == "Ana");
+    }
+}
+
+// Test 4 — Partial first name search is case-insensitive
+void testSearchByPartialFirstNameCaseInsensitive()
+{
+    const std::string dbPath = makeTempDbPath("t05_firstname_search");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan", "Dela Cruz");
+
+        // Mixed-case partial match against first name.
+        const std::vector<csms::Resident> result =
+            service.searchResidents("jUa");
+
+        assert(result.size() == 1u);
+        assert(result[0].getFirstName() == "Juan");
+    }
+}
+
+// Test 5 — Partial last name search is case-insensitive
+void testSearchByPartialLastNameCaseInsensitive()
+{
+    const std::string dbPath = makeTempDbPath("t05_lastname_search");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan", "Dela Cruz");
+
+        // Mixed-case partial match against last name.
+        const std::vector<csms::Resident> result =
+            service.searchResidents("cRuZ");
+
+        assert(result.size() == 1u);
+        assert(result[0].getLastName() == "Dela Cruz");
+    }
+}
+
+// Test 6 — Blank search returns all Residents
+void testBlankSearchReturnsAllResidents()
+{
+    const std::string dbPath = makeTempDbPath("t05_blank_search");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan",  "Cruz");
+        saveResident(repo, "Maria", "Santos");
+
+        // Whitespace-only search term must behave like listResidents().
+        const std::vector<csms::Resident> result =
+            service.searchResidents("   ");
+
+        assert(result.size() == 2u);
+    }
+}
+
+// Test 7 — Search with no match returns empty collection
+void testSearchWithNoMatchReturnsEmpty()
+{
+    const std::string dbPath = makeTempDbPath("t05_no_match");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan", "Cruz");
+
+        const std::vector<csms::Resident> result =
+            service.searchResidents("ZzzUnknownResident");
+
+        assert(result.empty());
+    }
+}
+
+// Test 8 — Search results preserve all Resident information
+void testSearchPreservesResidentInformation()
+{
+    const std::string dbPath = makeTempDbPath("t05_search_info");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        csms::Resident r(
+            "Juan",
+            "Dela Cruz",
+            "Barangay Santo Tomas",
+            "09171234567",
+            "juan@example.com",
+            "Active"
+        );
+        repo.save(r);
+
+        const std::vector<csms::Resident> result =
+            service.searchResidents("Juan");
+
+        assert(result.size() == 1u);
+        assert(result[0].getFirstName()     == "Juan");
+        assert(result[0].getLastName()      == "Dela Cruz");
+        assert(result[0].getAddress()       == "Barangay Santo Tomas");
+        // Leading zero must be preserved.
+        assert(result[0].getContactNumber() == "09171234567");
+        assert(result[0].getEmail()         == "juan@example.com");
+        assert(result[0].getStatus()        == "Active");
+        assert(result[0].getId()            > 0);
+    }
+}
+
+// Test 9 — Both Active and Inactive Residents are included
+void testListIncludesActiveAndInactiveResidents()
+{
+    const std::string dbPath = makeTempDbPath("t05_status_filter");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        saveResident(repo, "Juan",  "Cruz",   "Active");
+        saveResident(repo, "Maria", "Santos", "Inactive");
+
+        const std::vector<csms::Resident> result =
+            service.listResidents();
+
+        // Both must appear — T05 does not filter by status.
+        assert(result.size() == 2u);
+
+        bool foundActive   = false;
+        bool foundInactive = false;
+
+        for (const auto& resident : result)
+        {
+            if (resident.getStatus() == "Active")   foundActive   = true;
+            if (resident.getStatus() == "Inactive") foundInactive = true;
+        }
+
+        assert(foundActive);
+        assert(foundInactive);
+    }
+}
+
+// Test 10 — Matching Resident appears only once even when both names match
+void testSearchDoesNotDuplicateResident()
+{
+    const std::string dbPath = makeTempDbPath("t05_no_duplicate");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentQueryService service(repo);
+
+        // Both first name and last name contain "Cruz".
+        csms::Resident r(
+            "Cruz",
+            "Cruz",
+            "Test Address",
+            "09171234567",
+            "cruz@example.com"
+        );
+        repo.save(r);
+
+        const std::vector<csms::Resident> result =
+            service.searchResidents("Cruz");
+
+        // Must appear exactly once despite matching both columns.
+        assert(result.size() == 1u);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T05 Drogon test wrapper — runs all T05 search and listing scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentSearchListTest)
+{
+    testListAllResidents();
+    testListResidentsWhenEmpty();
+    testListResidentsOrdering();
+    testSearchByPartialFirstNameCaseInsensitive();
+    testSearchByPartialLastNameCaseInsensitive();
+    testBlankSearchReturnsAllResidents();
+    testSearchWithNoMatchReturnsEmpty();
+    testSearchPreservesResidentInformation();
+    testListIncludesActiveAndInactiveResidents();
+    testSearchDoesNotDuplicateResident();
+}
