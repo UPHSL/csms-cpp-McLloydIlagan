@@ -150,8 +150,69 @@ std::optional<Resident> ResidentRepository::findById(int residentId)
     return std::nullopt;
 }
 
-std::vector<Resident> ResidentRepository::findAll()
+Resident ResidentRepository::update(const Resident& resident)
 {
+    // UPDATE only the permitted editable fields.
+    // id and status are intentionally excluded — they must not change.
+    // The WHERE clause targets the specific Resident by id so no other
+    // row is ever affected.
+    const char* sql =
+        "UPDATE residents "
+        "SET first_name     = ?, "
+        "    last_name      = ?, "
+        "    address        = ?, "
+        "    contact_number = ?, "
+        "    email          = ? "
+        "WHERE id = ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(),
+        sql,
+        -1,
+        &stmt,
+        nullptr
+    );
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare UPDATE: ") +
+            sqlite3_errmsg(database_.handle())
+        );
+    }
+
+    sqlite3_bind_text(stmt, 1, resident.getFirstName().c_str(),     -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, resident.getLastName().c_str(),      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, resident.getAddress().c_str(),       -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, resident.getContactNumber().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, resident.getEmail().c_str(),         -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 6, resident.getId());
+
+    const int stepResult = sqlite3_step(stmt);
+
+    if (stepResult != SQLITE_DONE)
+    {
+        const std::string message =
+            std::string("UPDATE failed: ") + sqlite3_errmsg(database_.handle());
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(message);
+    }
+
+    sqlite3_finalize(stmt);
+
+    // Retrieve the freshly persisted state and return it.
+    // This guarantees the caller always receives the actual stored values.
+    auto updated = findById(resident.getId());
+    if (!updated.has_value())
+    {
+        throw std::runtime_error("UPDATE succeeded but Resident could not be retrieved.");
+    }
+    return updated.value();
+}
+
+std::vector<Resident> ResidentRepository::findAll(){
     // ORDER BY uses COLLATE NOCASE so the sort is case-insensitive.
     // id is the final tie-breaker when two Residents share both names.
     const char* sql =
