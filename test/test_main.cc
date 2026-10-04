@@ -1185,3 +1185,376 @@ DROGON_TEST(ResidentSearchListTest)
     testListIncludesActiveAndInactiveResidents();
     testSearchDoesNotDuplicateResident();
 }
+
+// ---------------------------------------------------------------------------
+// T06 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ResidentUpdateService.h"
+
+// ---------------------------------------------------------------------------
+// T06 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Valid Resident update succeeds
+void testValidResidentUpdateSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t06_update_success");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        // Register an original Resident.
+        csms::Resident original(
+            "Juan", "Cruz", "Old Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        // Propose a valid update.
+        csms::Resident proposed(
+            "Juan Miguel", "Dela Cruz", "New Address", "09181234567",
+            "juanmiguel@example.com"
+        );
+
+        const csms::ResidentUpdateResult result =
+            service.updateResident(id, proposed);
+
+        assert(result.success);
+        assert(!result.notFound);
+        assert(result.resident.has_value());
+        assert(result.errors.empty());
+    }
+}
+
+// Test 2 — Resident ID is preserved after update
+void testResidentIdIsPreservedAfterUpdate()
+{
+    const std::string dbPath = makeTempDbPath("t06_id_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Old Address", "09171234567", "juan@example.com"
+        );
+        const int originalId = repo.save(original).getId();
+
+        csms::Resident proposed(
+            "Juan Miguel", "Dela Cruz", "New Address", "09181234567",
+            "juanmiguel@example.com"
+        );
+
+        const csms::ResidentUpdateResult result =
+            service.updateResident(originalId, proposed);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+
+        // The id must not change.
+        assert(result.resident->getId() == originalId);
+    }
+}
+
+// Test 3 — Permitted fields are persisted after update
+void testPermittedFieldsArePersistedAfterUpdate()
+{
+    const std::string dbPath = makeTempDbPath("t06_fields_persisted");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Old Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        csms::Resident proposed(
+            "Maria", "Santos", "456 Rizal Ave", "09281234567",
+            "maria.santos@example.com"
+        );
+
+        service.updateResident(id, proposed);
+
+        // Retrieve through T03 findById to confirm persistence.
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getFirstName()     == "Maria");
+        assert(stored->getLastName()      == "Santos");
+        assert(stored->getAddress()       == "456 Rizal Ave");
+        assert(stored->getContactNumber() == "09281234567");
+        assert(stored->getEmail()         == "maria.santos@example.com");
+    }
+}
+
+// Test 4 — Resident status is preserved after update
+void testResidentStatusIsPreservedAfterUpdate()
+{
+    const std::string dbPath = makeTempDbPath("t06_status_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        // Test both Active and Inactive.
+        csms::Resident activeResident(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com",
+            "Active"
+        );
+        const int activeId = repo.save(activeResident).getId();
+
+        csms::Resident inactiveResident(
+            "Maria", "Santos", "Address", "09281234567", "maria@example.com",
+            "Inactive"
+        );
+        const int inactiveId = repo.save(inactiveResident).getId();
+
+        csms::Resident proposed(
+            "Updated", "Name", "New Address", "09381234567",
+            "updated@example.com"
+        );
+
+        const csms::ResidentUpdateResult activeResult =
+            service.updateResident(activeId, proposed);
+        const csms::ResidentUpdateResult inactiveResult =
+            service.updateResident(inactiveId, proposed);
+
+        assert(activeResult.success);
+        assert(activeResult.resident->getStatus() == "Active");
+
+        assert(inactiveResult.success);
+        assert(inactiveResult.resident->getStatus() == "Inactive");
+    }
+}
+
+// Test 5 — Invalid update fails
+void testInvalidUpdateFails()
+{
+    const std::string dbPath = makeTempDbPath("t06_invalid_update");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        // Empty first name violates T02.
+        csms::Resident invalidProposed(
+            "", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+
+        const csms::ResidentUpdateResult result =
+            service.updateResident(id, invalidProposed);
+
+        assert(!result.success);
+        assert(!result.notFound);
+        assert(!result.errors.empty());
+    }
+}
+
+// Test 6 — Invalid update does not modify persisted information
+void testInvalidUpdateDoesNotModifyPersistedInformation()
+{
+    const std::string dbPath = makeTempDbPath("t06_invalid_no_change");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Original Address", "09171234567",
+            "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        // Invalid — empty first name.
+        csms::Resident invalidProposed(
+            "", "Cruz", "New Address", "09171234567", "juan@example.com"
+        );
+
+        service.updateResident(id, invalidProposed);
+
+        // The original data must be unchanged.
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getFirstName() == "Juan");
+        assert(stored->getAddress()   == "Original Address");
+    }
+}
+
+// Test 7 — Updating a nonexistent Resident is handled safely
+void testUpdateNonexistentResidentIsHandledSafely()
+{
+    const std::string dbPath = makeTempDbPath("t06_not_found");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident proposed(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+
+        // 999999 does not exist.
+        const csms::ResidentUpdateResult result =
+            service.updateResident(999999, proposed);
+
+        assert(!result.success);
+        assert(result.notFound);
+        assert(!result.resident.has_value());
+        assert(result.errors.empty());
+    }
+}
+
+// Test 8 — Nonexistent update does not create a new Resident
+void testNonexistentUpdateDoesNotCreateResident()
+{
+    const std::string dbPath = makeTempDbPath("t06_no_insert");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        const int countBefore =
+            static_cast<int>(repo.findAll().size());
+
+        csms::Resident proposed(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+
+        service.updateResident(999999, proposed);
+
+        const int countAfter =
+            static_cast<int>(repo.findAll().size());
+
+        // No new Resident must have been created.
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 9 — Updated Resident is visible through T05 querying
+void testUpdatedResidentIsVisibleThroughT05Query()
+{
+    const std::string dbPath = makeTempDbPath("t06_t05_integration");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService updateService(validator, repo);
+        csms::ResidentQueryService queryService(repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        // Update to a completely different name.
+        csms::Resident proposed(
+            "Miguel", "Santos", "New Address", "09281234567",
+            "miguel@example.com"
+        );
+        updateService.updateResident(id, proposed);
+
+        // The old name must no longer appear.
+        const auto oldResults = queryService.searchResidents("Juan Cruz");
+        bool oldStillFound = false;
+        for (const auto& r : oldResults)
+        {
+            if (r.getId() == id) oldStillFound = true;
+        }
+        assert(!oldStillFound);
+
+        // The new name must be findable.
+        const auto newResults = queryService.searchResidents("Miguel");
+        bool newFound = false;
+        for (const auto& r : newResults)
+        {
+            if (r.getId() == id) newFound = true;
+        }
+        assert(newFound);
+    }
+}
+
+// Test 10 — Updated information and contact number are preserved
+void testUpdatedInformationAndContactNumberArePreserved()
+{
+    const std::string dbPath = makeTempDbPath("t06_contact_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentValidator validator;
+        csms::ResidentUpdateService service(validator, repo);
+
+        csms::Resident original(
+            "Juan", "Cruz", "Old Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(original).getId();
+
+        csms::Resident proposed(
+            "Pedro", "Reyes", "789 Bonifacio St", "09181234567",
+            "pedro.reyes@example.com"
+        );
+
+        const csms::ResidentUpdateResult result =
+            service.updateResident(id, proposed);
+
+        assert(result.success);
+
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getFirstName()     == "Pedro");
+        assert(stored->getLastName()      == "Reyes");
+        assert(stored->getAddress()       == "789 Bonifacio St");
+        // Leading zero must be preserved.
+        assert(stored->getContactNumber() == "09181234567");
+        assert(stored->getContactNumber()[0] == '0');
+        assert(stored->getEmail()         == "pedro.reyes@example.com");
+        // id and status must be unchanged.
+        assert(stored->getId()            == id);
+        assert(stored->getStatus()        == "Active");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T06 Drogon test wrapper — runs all T06 update scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentUpdateTest)
+{
+    testValidResidentUpdateSucceeds();
+    testResidentIdIsPreservedAfterUpdate();
+    testPermittedFieldsArePersistedAfterUpdate();
+    testResidentStatusIsPreservedAfterUpdate();
+    testInvalidUpdateFails();
+    testInvalidUpdateDoesNotModifyPersistedInformation();
+    testUpdateNonexistentResidentIsHandledSafely();
+    testNonexistentUpdateDoesNotCreateResident();
+    testUpdatedResidentIsVisibleThroughT05Query();
+    testUpdatedInformationAndContactNumberArePreserved();
+}
