@@ -65,6 +65,23 @@ public:
     std::vector<Resident> findAll();
 
     /**
+     * Updates the permitted fields of an existing persisted Resident.
+     *
+     * The supplied Resident must already have an assigned id (> 0) and
+     * must already satisfy T02 validation. The caller is responsible for
+     * preserving the existing status before calling this method.
+     *
+     * Only the following fields are written to the database:
+     *   first_name, last_name, address, contact_number, email
+     *
+     * The id and status columns are never modified by this method.
+     *
+     * Returns the updated Resident retrieved from the database.
+     * Throws std::runtime_error if the UPDATE statement fails.
+     */
+    Resident update(const Resident& resident);
+
+    /**
      * Returns Residents whose first name or last name contains the
      * given search term (case-insensitive partial match).
      *
