@@ -553,6 +553,10 @@ int main(int argc, char** argv)
     std::future<void> f1 = p1.get_future();
 
     std::thread thr([&]() {
+        // Suppress all Drogon output and disable plugins/listeners
+        // so the test process exits cleanly after each CTest run.
+        app().setLogLevel(trantor::Logger::kFatal);
+        app().disableSigtermHandling();
         app().getLoop()->queueInLoop([&p1]() { p1.set_value(); });
         app().run();
     });
@@ -1885,4 +1889,133 @@ DROGON_TEST(ResidentDeactivationTest)
     testNonexistentResidentIsHandledSafely();
     testNonexistentDeactivationDoesNotCreateOrDeleteRecords();
     testDeactivatingOneResidentDoesNotAffectAnother();
+}
+
+// ---------------------------------------------------------------------------
+// T08 includes
+// ---------------------------------------------------------------------------
+
+#include "models/ServiceRequest.h"
+
+// ---------------------------------------------------------------------------
+// T08 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Service Request can be created
+void testServiceRequestCanBeCreated()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Request for employment requirement",
+        "2026-09-25"
+    );
+
+    // Construction must succeed — verified by accessing any field.
+    assert(request.getResidentId() == 25);
+}
+
+// Test 2 — Service Request information is accessible
+void testServiceRequestInformationIsAccessible()
+{
+    csms::ServiceRequest request(
+        25,
+        "Certificate Request",
+        "Requesting certificate of residency",
+        "2026-09-25"
+    );
+
+    assert(request.getResidentId()    == 25);
+    assert(request.getServiceType()   == "Certificate Request");
+    assert(request.getDescription()   == "Requesting certificate of residency");
+    assert(request.getDateRequested() == "2026-09-25");
+}
+
+// Test 3 — Resident ID is preserved
+void testServiceRequestResidentIdIsPreserved()
+{
+    csms::ServiceRequest request(
+        25,
+        "Community Assistance",
+        "Requesting community assistance",
+        "2026-09-25"
+    );
+
+    // residentId must not be replaced or modified.
+    assert(request.getResidentId() == 25);
+}
+
+// Test 4 — New Service Request has an unassigned ID
+void testNewServiceRequestHasUnassignedId()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Test description",
+        "2026-09-25"
+    );
+
+    // id must be std::nullopt before persistence assigns one.
+    assert(!request.getId().has_value());
+}
+
+// Test 5 — New Service Request defaults to Pending
+void testNewServiceRequestDefaultsToPending()
+{
+    // Create without explicitly supplying a status.
+    csms::ServiceRequest request(
+        25,
+        "Permit Request",
+        "Requesting a permit",
+        "2026-09-25"
+    );
+
+    assert(request.getStatus() == "Pending");
+}
+
+// Test 6 — Service Request information is independent between objects
+void testServiceRequestInformationIsIndependentBetweenObjects()
+{
+    csms::ServiceRequest request1(
+        10,
+        "Barangay Clearance",
+        "First request description",
+        "2026-09-01"
+    );
+
+    csms::ServiceRequest request2(
+        20,
+        "Certificate Request",
+        "Second request description",
+        "2026-09-15"
+    );
+
+    // Each object must preserve its own data independently.
+    assert(request1.getResidentId()    == 10);
+    assert(request1.getServiceType()   == "Barangay Clearance");
+    assert(request1.getDescription()   == "First request description");
+    assert(request1.getDateRequested() == "2026-09-01");
+
+    assert(request2.getResidentId()    == 20);
+    assert(request2.getServiceType()   == "Certificate Request");
+    assert(request2.getDescription()   == "Second request description");
+    assert(request2.getDateRequested() == "2026-09-15");
+
+    // Ensure they do not share state.
+    assert(request1.getResidentId()  != request2.getResidentId());
+    assert(request1.getServiceType() != request2.getServiceType());
+}
+
+// ---------------------------------------------------------------------------
+// T08 Drogon test wrapper — runs all T08 Service Request domain scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestDomainTest)
+{
+    testServiceRequestCanBeCreated();
+    testServiceRequestInformationIsAccessible();
+    testServiceRequestResidentIdIsPreserved();
+    testNewServiceRequestHasUnassignedId();
+    testNewServiceRequestDefaultsToPending();
+    testServiceRequestInformationIsIndependentBetweenObjects();
 }

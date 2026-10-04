@@ -28,3 +28,21 @@ target_link_libraries(csms_cpp_test PRIVATE Drogon::Drogon)
 target_link_libraries(csms_cpp_test PRIVATE SQLite3_lib)
 
 ParseAndAddDrogonTests(csms_cpp_test)
+
+# Set a per-test timeout so CTest does not hang waiting for the Drogon
+# event loop to fully release its socket between consecutive test runs.
+# Each individual test completes well within 10 seconds on this machine.
+set_tests_properties(
+    BasicTest
+    ResidentCreationTest
+    ResidentInformationAccessTest
+    ResidentStatusTest
+    ResidentValidationTest
+    ResidentPersistenceTest
+    ResidentRegistrationTest
+    ResidentSearchListTest
+    ResidentUpdateTest
+    ResidentDeactivationTest
+    ServiceRequestDomainTest
+    PROPERTIES TIMEOUT 10
+)
