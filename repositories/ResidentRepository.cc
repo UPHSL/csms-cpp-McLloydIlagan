@@ -150,6 +150,61 @@ std::optional<Resident> ResidentRepository::findById(int residentId)
     return std::nullopt;
 }
 
+Resident ResidentRepository::deactivateById(int residentId)
+{
+    // UPDATE only the status column to Inactive.
+    // All other columns — including id, personal info, and contact info —
+    // are untouched. The WHERE clause targets only the requested Resident.
+    const char* sql =
+        "UPDATE residents "
+        "SET status = 'Inactive' "
+        "WHERE id = ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(),
+        sql,
+        -1,
+        &stmt,
+        nullptr
+    );
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare deactivate UPDATE: ") +
+            sqlite3_errmsg(database_.handle())
+        );
+    }
+
+    sqlite3_bind_int(stmt, 1, residentId);
+
+    const int stepResult = sqlite3_step(stmt);
+
+    if (stepResult != SQLITE_DONE)
+    {
+        const std::string message =
+            std::string("Deactivate UPDATE failed: ") +
+            sqlite3_errmsg(database_.handle());
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(message);
+    }
+
+    sqlite3_finalize(stmt);
+
+    // Return the final persisted state so the caller can confirm
+    // the Resident is now Inactive.
+    auto updated = findById(residentId);
+    if (!updated.has_value())
+    {
+        throw std::runtime_error(
+            "Deactivate UPDATE succeeded but Resident could not be retrieved."
+        );
+    }
+    return updated.value();
+}
+
 Resident ResidentRepository::update(const Resident& resident)
 {
     // UPDATE only the permitted editable fields.
