@@ -65,6 +65,20 @@ public:
     std::vector<Resident> findAll();
 
     /**
+     * Changes the status of the Resident identified by residentId to Inactive.
+     *
+     * This is a soft deactivation — the Resident record remains in
+     * persistence. Only the status column is modified.
+     *
+     * The operation is safe to call when the Resident is already Inactive;
+     * it simply writes Inactive again without any other side effect.
+     *
+     * Returns the final persisted Resident after the status change.
+     * Throws std::runtime_error if the UPDATE statement fails.
+     */
+    Resident deactivateById(int residentId);
+
+    /**
      * Updates the permitted fields of an existing persisted Resident.
      *
      * The supplied Resident must already have an assigned id (> 0) and

@@ -1558,3 +1558,331 @@ DROGON_TEST(ResidentUpdateTest)
     testUpdatedResidentIsVisibleThroughT05Query();
     testUpdatedInformationAndContactNumberArePreserved();
 }
+
+// ---------------------------------------------------------------------------
+// T07 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ResidentDeactivationService.h"
+
+// ---------------------------------------------------------------------------
+// T07 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Active Resident can be deactivated
+void testActiveResidentCanBeDeactivated()
+{
+    const std::string dbPath = makeTempDbPath("t07_deactivate");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com",
+            "Active"
+        );
+        const int id = repo.save(r).getId();
+
+        const csms::ResidentDeactivationResult result =
+            service.deactivateResident(id);
+
+        assert(result.success);
+        assert(!result.notFound);
+        assert(!result.alreadyInactive);
+        assert(result.resident.has_value());
+    }
+}
+
+// Test 2 — Status becomes Inactive in persistence
+void testResidentStatusBecomesInactiveInPersistence()
+{
+    const std::string dbPath = makeTempDbPath("t07_status_inactive");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com",
+            "Active"
+        );
+        const int id = repo.save(r).getId();
+
+        service.deactivateResident(id);
+
+        // Retrieve through T03 to confirm the status change is persisted.
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Inactive");
+    }
+}
+
+// Test 3 — Resident ID is preserved after deactivation
+void testResidentIdIsPreservedAfterDeactivation()
+{
+    const std::string dbPath = makeTempDbPath("t07_id_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+        const int originalId = repo.save(r).getId();
+
+        const csms::ResidentDeactivationResult result =
+            service.deactivateResident(originalId);
+
+        assert(result.success);
+        assert(result.resident.has_value());
+        assert(result.resident->getId() == originalId);
+    }
+}
+
+// Test 4 — Resident information is preserved after deactivation
+void testResidentInformationIsPreservedAfterDeactivation()
+{
+    const std::string dbPath = makeTempDbPath("t07_info_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r(
+            "Juan", "Dela Cruz", "Barangay Santo Tomas",
+            "09171234567", "juan@example.com", "Active"
+        );
+        const int id = repo.save(r).getId();
+
+        service.deactivateResident(id);
+
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getFirstName()     == "Juan");
+        assert(stored->getLastName()      == "Dela Cruz");
+        assert(stored->getAddress()       == "Barangay Santo Tomas");
+        assert(stored->getContactNumber() == "09171234567");
+        assert(stored->getEmail()         == "juan@example.com");
+        // Only status changes.
+        assert(stored->getStatus()        == "Inactive");
+        assert(stored->getId()            == id);
+    }
+}
+
+// Test 5 — Deactivated Resident remains persisted and retrievable
+void testDeactivatedResidentRemainsPersistedAndRetrievable()
+{
+    const std::string dbPath = makeTempDbPath("t07_still_persisted");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+        const int id = repo.save(r).getId();
+
+        service.deactivateResident(id);
+
+        // The record must still exist — not deleted.
+        const std::optional<csms::Resident> stored = repo.findById(id);
+
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Inactive");
+    }
+}
+
+// Test 6 — Deactivated Resident remains available through T05
+void testDeactivatedResidentRemainsAvailableThroughT05()
+{
+    const std::string dbPath = makeTempDbPath("t07_t05_integration");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService deactivationService(repo);
+        csms::ResidentQueryService queryService(repo);
+
+        csms::Resident r(
+            "Maria", "Santos", "Address", "09171234567", "maria@example.com",
+            "Active"
+        );
+        const int id = repo.save(r).getId();
+
+        deactivationService.deactivateResident(id);
+
+        // T05 listing must still include Inactive Residents.
+        const auto listed = queryService.listResidents();
+        bool found = false;
+        for (const auto& res : listed)
+        {
+            if (res.getId() == id)
+            {
+                found = true;
+                assert(res.getStatus() == "Inactive");
+            }
+        }
+        assert(found);
+
+        // T05 search must also still find the Resident.
+        const auto searched = queryService.searchResidents("Maria");
+        bool searchFound = false;
+        for (const auto& res : searched)
+        {
+            if (res.getId() == id) searchFound = true;
+        }
+        assert(searchFound);
+    }
+}
+
+// Test 7 — Already-Inactive Resident is handled safely
+void testAlreadyInactiveResidentIsHandledSafely()
+{
+    const std::string dbPath = makeTempDbPath("t07_already_inactive");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        // Start with an already-Inactive Resident.
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com",
+            "Inactive"
+        );
+        const int id = repo.save(r).getId();
+
+        const csms::ResidentDeactivationResult result =
+            service.deactivateResident(id);
+
+        // Must succeed safely — no crash, no new record, no data change.
+        assert(result.success);
+        assert(result.alreadyInactive);
+        assert(!result.notFound);
+        assert(result.resident.has_value());
+        assert(result.resident->getStatus() == "Inactive");
+        assert(result.resident->getId()     == id);
+    }
+}
+
+// Test 8 — Nonexistent Resident is handled safely
+void testNonexistentResidentIsHandledSafely()
+{
+    const std::string dbPath = makeTempDbPath("t07_not_found");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        const csms::ResidentDeactivationResult result =
+            service.deactivateResident(999999);
+
+        assert(!result.success);
+        assert(result.notFound);
+        assert(!result.alreadyInactive);
+        assert(!result.resident.has_value());
+    }
+}
+
+// Test 9 — Nonexistent deactivation does not create or delete records
+void testNonexistentDeactivationDoesNotCreateOrDeleteRecords()
+{
+    const std::string dbPath = makeTempDbPath("t07_no_side_effects");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        // Save one real Resident first.
+        csms::Resident r(
+            "Juan", "Cruz", "Address", "09171234567", "juan@example.com"
+        );
+        const int realId = repo.save(r).getId();
+
+        const int countBefore =
+            static_cast<int>(repo.findAll().size());
+
+        // Attempt to deactivate a nonexistent id.
+        service.deactivateResident(999999);
+
+        const int countAfter =
+            static_cast<int>(repo.findAll().size());
+
+        // Count must be unchanged — no insert or delete.
+        assert(countAfter == countBefore);
+
+        // The real Resident must be unaffected.
+        const std::optional<csms::Resident> stored = repo.findById(realId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Active");
+    }
+}
+
+// Test 10 — Deactivating one Resident does not affect another
+void testDeactivatingOneResidentDoesNotAffectAnother()
+{
+    const std::string dbPath = makeTempDbPath("t07_isolation");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository repo(db);
+        csms::ResidentDeactivationService service(repo);
+
+        csms::Resident r1(
+            "Juan", "Cruz", "Address 1", "09171234567", "juan@example.com",
+            "Active"
+        );
+        csms::Resident r2(
+            "Maria", "Santos", "Address 2", "09281234567", "maria@example.com",
+            "Active"
+        );
+
+        const int id1 = repo.save(r1).getId();
+        const int id2 = repo.save(r2).getId();
+
+        // Deactivate only Resident 1.
+        service.deactivateResident(id1);
+
+        const std::optional<csms::Resident> stored1 = repo.findById(id1);
+        const std::optional<csms::Resident> stored2 = repo.findById(id2);
+
+        assert(stored1.has_value());
+        assert(stored1->getStatus() == "Inactive");
+
+        // Resident 2 must remain Active and fully unchanged.
+        assert(stored2.has_value());
+        assert(stored2->getStatus()    == "Active");
+        assert(stored2->getFirstName() == "Maria");
+        assert(stored2->getLastName()  == "Santos");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T07 Drogon test wrapper — runs all T07 deactivation scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentDeactivationTest)
+{
+    testActiveResidentCanBeDeactivated();
+    testResidentStatusBecomesInactiveInPersistence();
+    testResidentIdIsPreservedAfterDeactivation();
+    testResidentInformationIsPreservedAfterDeactivation();
+    testDeactivatedResidentRemainsPersistedAndRetrievable();
+    testDeactivatedResidentRemainsAvailableThroughT05();
+    testAlreadyInactiveResidentIsHandledSafely();
+    testNonexistentResidentIsHandledSafely();
+    testNonexistentDeactivationDoesNotCreateOrDeleteRecords();
+    testDeactivatingOneResidentDoesNotAffectAnother();
+}
