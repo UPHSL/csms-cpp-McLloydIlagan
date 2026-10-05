@@ -2019,3 +2019,859 @@ DROGON_TEST(ServiceRequestDomainTest)
     testNewServiceRequestDefaultsToPending();
     testServiceRequestInformationIsIndependentBetweenObjects();
 }
+
+// ---------------------------------------------------------------------------
+// T09 includes
+// ---------------------------------------------------------------------------
+
+#include "models/ServiceRequestValidator.h"
+#include "repositories/ServiceRequestRepository.h"
+#include "services/ServiceRequestSubmissionService.h"
+#include "services/ServiceRequestSubmissionResult.h"
+
+// ---------------------------------------------------------------------------
+// T09 Helpers
+// ---------------------------------------------------------------------------
+
+// Returns a valid ServiceRequest for an already-persisted Resident.
+static csms::ServiceRequest makeValidServiceRequest(int residentId)
+{
+    return csms::ServiceRequest(
+        residentId,
+        "Barangay Clearance",
+        "Requesting barangay clearance for employment requirements.",
+        "2026-09-25"
+        // status defaults to "Pending"
+    );
+}
+
+// Saves an Active Resident directly and returns its generated id.
+static int saveActiveResident(csms::ResidentRepository& repo)
+{
+    csms::Resident r(
+        "Juan",
+        "Dela Cruz",
+        "Barangay Santo Tomas",
+        "09171234567",
+        "juan@example.com"
+        // status defaults to "Active"
+    );
+    return repo.save(r).getId();
+}
+
+// Saves an Inactive Resident directly and returns its generated id.
+static int saveInactiveResident(csms::ResidentRepository& repo)
+{
+    csms::Resident r(
+        "Maria",
+        "Santos",
+        "456 Rizal Ave",
+        "09281234567",
+        "maria@example.com",
+        "Inactive"
+    );
+    return repo.save(r).getId();
+}
+
+// Counts rows in service_requests using a raw sqlite3 connection.
+// Used by the "does not reach persistence" tests.
+static int countServiceRequests(const std::string& dbPath)
+{
+    sqlite3* db = nullptr;
+    sqlite3_open(dbPath.c_str(), &db);
+
+    // Make sure the table exists before counting.
+    sqlite3_exec(db,
+        "CREATE TABLE IF NOT EXISTS service_requests ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "resident_id INTEGER NOT NULL,"
+        "service_type TEXT NOT NULL,"
+        "description TEXT NOT NULL,"
+        "date_requested TEXT NOT NULL,"
+        "status TEXT NOT NULL DEFAULT 'Pending');",
+        nullptr, nullptr, nullptr);
+
+    const char* sql = "SELECT COUNT(*) FROM service_requests;";
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    sqlite3_step(stmt);
+
+    const int count = sqlite3_column_int(stmt, 0);
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return count;
+}
+
+// ---------------------------------------------------------------------------
+// T09 — Service Request Validation Test Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Valid Service Request passes validation
+void testValidServiceRequestPassesValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Requesting barangay clearance for employment requirements.",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+
+    assert(validator.isValid(request));
+    assert(validator.validate(request).empty());
+}
+
+// Test 2 — Assigned ID fails validation (not a new submission)
+void testAssignedIdFailsValidation()
+{
+    // Use the with-id constructor — simulates a request already persisted.
+    csms::ServiceRequest request(
+        17,   // id already assigned
+        25,
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "id"));
+}
+
+// Test 3 — Zero residentId fails validation
+void testZeroResidentIdFailsValidation()
+{
+    csms::ServiceRequest request(
+        0,   // invalid — must be positive
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "residentId"));
+}
+
+// Test 4 — Negative residentId fails validation
+void testNegativeResidentIdFailsValidation()
+{
+    csms::ServiceRequest request(
+        -5,
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "residentId"));
+}
+
+// Test 5 — Blank serviceType fails validation
+void testBlankServiceTypeFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "",   // blank
+        "Some description",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "serviceType"));
+}
+
+// Test 6 — Whitespace-only serviceType fails validation
+void testWhitespaceServiceTypeFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "   ",   // whitespace only
+        "Some description",
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "serviceType"));
+}
+
+// Test 7 — Blank description fails validation
+void testBlankDescriptionFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "",   // blank
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "description"));
+}
+
+// Test 8 — Whitespace-only description fails validation
+void testWhitespaceDescriptionFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "   ",   // whitespace only
+        "2026-09-25"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "description"));
+}
+
+// Test 9 — Blank dateRequested fails validation
+void testBlankDateRequestedFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Some description",
+        ""   // blank date
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "dateRequested"));
+}
+
+// Test 10 — Non-Pending status fails validation
+void testNonPendingStatusFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25",
+        "Completed"   // must not start as Completed
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "status"));
+}
+
+// Test 11 — In Progress initial status fails validation
+void testInProgressInitialStatusFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25",
+        "In Progress"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "status"));
+}
+
+// Test 12 — Cancelled initial status fails validation
+void testCancelledInitialStatusFailsValidation()
+{
+    csms::ServiceRequest request(
+        25,
+        "Barangay Clearance",
+        "Some description",
+        "2026-09-25",
+        "Cancelled"
+    );
+
+    csms::ServiceRequestValidator validator;
+    const auto errors = validator.validate(request);
+
+    assert(!validator.isValid(request));
+    assert(containsValidationError(errors, "status"));
+}
+
+// ---------------------------------------------------------------------------
+// T09 — Service Request Validation DROGON_TEST wrapper
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestValidationTest)
+{
+    testValidServiceRequestPassesValidation();
+    testAssignedIdFailsValidation();
+    testZeroResidentIdFailsValidation();
+    testNegativeResidentIdFailsValidation();
+    testBlankServiceTypeFailsValidation();
+    testWhitespaceServiceTypeFailsValidation();
+    testBlankDescriptionFailsValidation();
+    testWhitespaceDescriptionFailsValidation();
+    testBlankDateRequestedFailsValidation();
+    testNonPendingStatusFailsValidation();
+    testInProgressInitialStatusFailsValidation();
+    testCancelledInitialStatusFailsValidation();
+}
+
+// ---------------------------------------------------------------------------
+// T09 — Service Request Submission Test Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Valid Service Request submission succeeds
+void testValidServiceRequestSubmissionSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t09_submit_success");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(!result.residentNotFound);
+        assert(!result.residentInactive);
+        assert(result.serviceRequest.has_value());
+        assert(result.errors.empty());
+    }
+}
+
+// Test 2 — Submitted Service Request receives a generated ID
+void testSubmittedServiceRequestReceivesGeneratedId()
+{
+    const std::string dbPath = makeTempDbPath("t09_generated_id");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+
+        // Before submission the id must be unassigned.
+        assert(!request.getId().has_value());
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+
+        // After successful persistence SQLite must have assigned a positive id.
+        assert(result.serviceRequest->getId().has_value());
+        assert(result.serviceRequest->getId().value() > 0);
+    }
+}
+
+// Test 3 — Submitted Service Request is persisted and retrievable
+void testSubmittedServiceRequestIsPersistedAndRetrievable()
+{
+    const std::string dbPath = makeTempDbPath("t09_retrievable");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+
+        const int generatedId = result.serviceRequest->getId().value();
+
+        // Must be retrievable from the repository by its generated id.
+        const std::optional<csms::ServiceRequest> found =
+            requestRepo.findById(generatedId);
+
+        assert(found.has_value());
+        assert(found->getId().has_value());
+        assert(found->getId().value() == generatedId);
+    }
+}
+
+// Test 4 — Submitted Service Request information is preserved
+void testSubmittedServiceRequestInformationIsPreserved()
+{
+    const std::string dbPath = makeTempDbPath("t09_info_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        csms::ServiceRequest request(
+            residentId,
+            "Certificate Request",
+            "Requesting certificate of residency.",
+            "2026-09-20"
+        );
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+
+        const int id = result.serviceRequest->getId().value();
+        const std::optional<csms::ServiceRequest> found =
+            requestRepo.findById(id);
+
+        assert(found.has_value());
+        assert(found->getResidentId()    == residentId);
+        assert(found->getServiceType()   == "Certificate Request");
+        assert(found->getDescription()   == "Requesting certificate of residency.");
+        assert(found->getDateRequested() == "2026-09-20");
+        assert(found->getStatus()        == "Pending");
+    }
+}
+
+// Test 5 — Submitted Service Request status is Pending
+void testSubmittedServiceRequestStatusIsPending()
+{
+    const std::string dbPath = makeTempDbPath("t09_status_pending");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+        assert(result.serviceRequest->getStatus() == "Pending");
+
+        // Also verify from the repository directly.
+        const int id = result.serviceRequest->getId().value();
+        const std::optional<csms::ServiceRequest> found =
+            requestRepo.findById(id);
+
+        assert(found.has_value());
+        assert(found->getStatus() == "Pending");
+    }
+}
+
+// Test 6 — Blank serviceType submission fails
+void testBlankServiceTypeSubmissionFails()
+{
+    const std::string dbPath = makeTempDbPath("t09_blank_service_type");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        csms::ServiceRequest request(
+            residentId,
+            "",   // blank serviceType
+            "Some description",
+            "2026-09-25"
+        );
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(!result.success);
+        assert(!result.errors.empty());
+        assert(containsValidationError(result.errors, "serviceType"));
+        assert(!result.serviceRequest.has_value());
+    }
+}
+
+// Test 7 — Blank description submission fails
+void testBlankDescriptionSubmissionFails()
+{
+    const std::string dbPath = makeTempDbPath("t09_blank_description");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        csms::ServiceRequest request(
+            residentId,
+            "Barangay Clearance",
+            "",   // blank description
+            "2026-09-25"
+        );
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(!result.success);
+        assert(!result.errors.empty());
+        assert(containsValidationError(result.errors, "description"));
+        assert(!result.serviceRequest.has_value());
+    }
+}
+
+// Test 8 — Invalid request does not reach persistence
+void testInvalidRequestDoesNotReachPersistence()
+{
+    const std::string dbPath = makeTempDbPath("t09_no_persist_invalid");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        // Both serviceType and description are blank — must fail validation.
+        csms::ServiceRequest request(
+            residentId,
+            "   ",   // whitespace-only serviceType
+            "",       // blank description
+            "2026-09-25"
+        );
+
+        const int countBefore = countServiceRequests(dbPath);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        const int countAfter = countServiceRequests(dbPath);
+
+        assert(!result.success);
+        // Row count must not have increased — invalid request never persisted.
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 9 — Nonexistent Resident prevents submission
+void testNonexistentResidentPreventsSubmission()
+{
+    const std::string dbPath = makeTempDbPath("t09_resident_not_found");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        // Use a structurally valid residentId that has never been persisted.
+        csms::ServiceRequest request(
+            999999,
+            "Barangay Clearance",
+            "Requesting barangay clearance for employment requirements.",
+            "2026-09-25"
+        );
+
+        const int countBefore = countServiceRequests(dbPath);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        const int countAfter = countServiceRequests(dbPath);
+
+        assert(!result.success);
+        assert(result.residentNotFound);
+        assert(!result.residentInactive);
+        assert(!result.serviceRequest.has_value());
+        // No Service Request must have been persisted.
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 10 — Inactive Resident cannot submit a new Service Request
+void testInactiveResidentCannotSubmit()
+{
+    const std::string dbPath = makeTempDbPath("t09_inactive_resident");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int inactiveId = saveInactiveResident(residentRepo);
+
+        csms::ServiceRequest request(
+            inactiveId,
+            "Barangay Clearance",
+            "Requesting barangay clearance for employment requirements.",
+            "2026-09-25"
+        );
+
+        const int countBefore = countServiceRequests(dbPath);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        const int countAfter = countServiceRequests(dbPath);
+
+        assert(!result.success);
+        assert(!result.residentNotFound);
+        assert(result.residentInactive);
+        assert(!result.serviceRequest.has_value());
+        // No Service Request must have been persisted.
+        assert(countAfter == countBefore);
+
+        // The Resident itself must remain Inactive and unchanged.
+        const std::optional<csms::Resident> stored =
+            residentRepo.findById(inactiveId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Inactive");
+    }
+}
+
+// Test 11 — Non-Pending initial status is rejected
+void testNonPendingInitialStatusIsRejected()
+{
+    const std::string dbPath = makeTempDbPath("t09_non_pending");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        // Attempt to submit a request that starts as Completed.
+        csms::ServiceRequest request(
+            residentId,
+            "Barangay Clearance",
+            "Some description",
+            "2026-09-25",
+            "Completed"   // not Pending — must be rejected
+        );
+
+        const int countBefore = countServiceRequests(dbPath);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        const int countAfter = countServiceRequests(dbPath);
+
+        assert(!result.success);
+        assert(!result.errors.empty());
+        assert(containsValidationError(result.errors, "status"));
+        // Must not have reached persistence.
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 12 — Service Request persists across repository instances
+void testServiceRequestPersistsAcrossRepositoryInstances()
+{
+    const std::string dbPath = makeTempDbPath("t09_cross_instance");
+
+    int savedId = 0;
+
+    // First scope: submit and record the generated id, then close everything.
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+        savedId = result.serviceRequest->getId().value();
+        assert(savedId > 0);
+        // db destructor closes the connection here.
+    }
+
+    // Second scope: open the same file with a brand-new instance.
+    {
+        csms::Database db2(dbPath);
+        csms::ServiceRequestRepository requestRepo2(db2);
+
+        const std::optional<csms::ServiceRequest> found =
+            requestRepo2.findById(savedId);
+
+        // The record must still exist — it is in the SQLite file, not memory.
+        assert(found.has_value());
+        assert(found->getId().has_value());
+        assert(found->getId().value() == savedId);
+        assert(found->getStatus()     == "Pending");
+    }
+}
+
+// Test 13 — Submission does not modify the Resident
+void testSubmissionDoesNotModifyTheResident()
+{
+    const std::string dbPath = makeTempDbPath("t09_resident_unchanged");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        // Capture the Resident state before submission.
+        const std::optional<csms::Resident> before =
+            residentRepo.findById(residentId);
+        assert(before.has_value());
+
+        const csms::ServiceRequest request =
+            makeValidServiceRequest(residentId);
+        service.submitRequest(request);
+
+        // Retrieve the Resident again after submission.
+        const std::optional<csms::Resident> after =
+            residentRepo.findById(residentId);
+        assert(after.has_value());
+
+        // Every field must be identical — submission must not alter the Resident.
+        assert(after->getId()            == before->getId());
+        assert(after->getFirstName()     == before->getFirstName());
+        assert(after->getLastName()      == before->getLastName());
+        assert(after->getAddress()       == before->getAddress());
+        assert(after->getContactNumber() == before->getContactNumber());
+        assert(after->getEmail()         == before->getEmail());
+        assert(after->getStatus()        == before->getStatus());
+        assert(after->getStatus()        == "Active");
+    }
+}
+
+// Test 14 — Date validation: blank dateRequested is rejected by submission
+void testBlankDateRequestedIsRejectedBySubmission()
+{
+    const std::string dbPath = makeTempDbPath("t09_blank_date");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService service(
+            validator, residentRepo, requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        csms::ServiceRequest request(
+            residentId,
+            "Barangay Clearance",
+            "Requesting barangay clearance.",
+            ""   // blank dateRequested
+        );
+
+        const int countBefore = countServiceRequests(dbPath);
+
+        const csms::ServiceRequestSubmissionResult result =
+            service.submitRequest(request);
+
+        const int countAfter = countServiceRequests(dbPath);
+
+        assert(!result.success);
+        assert(!result.errors.empty());
+        assert(containsValidationError(result.errors, "dateRequested"));
+        // Must not have been persisted.
+        assert(countAfter == countBefore);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T09 — Service Request Submission DROGON_TEST wrapper
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestSubmissionTest)
+{
+    testValidServiceRequestSubmissionSucceeds();
+    testSubmittedServiceRequestReceivesGeneratedId();
+    testSubmittedServiceRequestIsPersistedAndRetrievable();
+    testSubmittedServiceRequestInformationIsPreserved();
+    testSubmittedServiceRequestStatusIsPending();
+    testBlankServiceTypeSubmissionFails();
+    testBlankDescriptionSubmissionFails();
+    testInvalidRequestDoesNotReachPersistence();
+    testNonexistentResidentPreventsSubmission();
+    testInactiveResidentCannotSubmit();
+    testNonPendingInitialStatusIsRejected();
+    testServiceRequestPersistsAcrossRepositoryInstances();
+    testSubmissionDoesNotModifyTheResident();
+    testBlankDateRequestedIsRejectedBySubmission();
+}

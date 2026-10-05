@@ -42,6 +42,19 @@ void Database::initializeSchema()
         "    contact_number TEXT NOT NULL,"
         "    email          TEXT NOT NULL,"
         "    status         TEXT NOT NULL DEFAULT 'Active'"
+        ");"
+
+        // T09 — Service Request persistence.
+        // resident_id references the Resident who submitted the request.
+        // date_requested is TEXT (YYYY-MM-DD) so the format is preserved.
+        // status is TEXT; every new request begins as 'Pending'.
+        "CREATE TABLE IF NOT EXISTS service_requests ("
+        "    id             INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    resident_id    INTEGER NOT NULL,"
+        "    service_type   TEXT    NOT NULL,"
+        "    description    TEXT    NOT NULL,"
+        "    date_requested TEXT    NOT NULL,"
+        "    status         TEXT    NOT NULL DEFAULT 'Pending'"
         ");";
 
     char* errorMessage = nullptr;
