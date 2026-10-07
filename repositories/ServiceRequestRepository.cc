@@ -112,4 +112,54 @@ std::optional<ServiceRequest> ServiceRequestRepository::findById(int requestId)
     return std::nullopt;
 }
 
+ServiceRequest ServiceRequestRepository::updateStatus(
+    int requestId,
+    const std::string& newStatus)
+{
+    // UPDATE only the status column — all other fields remain unchanged.
+    const char* sql =
+        "UPDATE service_requests "
+        "SET status = ? "
+        "WHERE id = ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare service_requests UPDATE: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+
+    sqlite3_bind_text(stmt, 1, newStatus.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 2, requestId);
+
+    const int stepResult = sqlite3_step(stmt);
+
+    if (stepResult != SQLITE_DONE)
+    {
+        const std::string message =
+            std::string("service_requests UPDATE failed: ") +
+            sqlite3_errmsg(database_.handle());
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(message);
+    }
+
+    sqlite3_finalize(stmt);
+
+    // Return the authoritative persisted state after the UPDATE.
+    // findById is guaranteed to succeed because the caller already
+    // verified the record exists before calling updateStatus.
+    const std::optional<ServiceRequest> updated = findById(requestId);
+    if (!updated.has_value())
+    {
+        throw std::runtime_error(
+            "service_requests UPDATE succeeded but findById returned nullopt");
+    }
+    return updated.value();
+}
+
 } // namespace csms

@@ -2875,3 +2875,566 @@ DROGON_TEST(ServiceRequestSubmissionTest)
     testSubmissionDoesNotModifyTheResident();
     testBlankDateRequestedIsRejectedBySubmission();
 }
+
+// ---------------------------------------------------------------------------
+// T10 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ServiceRequestStatusService.h"
+#include "services/ServiceRequestStatusResult.h"
+
+// ---------------------------------------------------------------------------
+// T10 Helpers
+// ---------------------------------------------------------------------------
+
+// Submits a valid Service Request for an Active Resident and returns the
+// generated Service Request id. Used as the starting point for all T10 tests.
+static int submitNewRequest(
+    csms::ResidentRepository& residentRepo,
+    csms::ServiceRequestRepository& requestRepo)
+{
+    const int residentId = saveActiveResident(residentRepo);
+
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(
+        validator, residentRepo, requestRepo);
+
+    const csms::ServiceRequest request = makeValidServiceRequest(residentId);
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(result.success);
+    assert(result.serviceRequest.has_value());
+    return result.serviceRequest->getId().value();
+}
+
+// Advances a Service Request from Pending to In Progress using the
+// legitimate T10 workflow. Returns the updated Service Request id.
+static int advanceToInProgress(
+    int requestId,
+    csms::ServiceRequestStatusService& statusService)
+{
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(requestId, "In Progress");
+    assert(result.success);
+    return requestId;
+}
+
+// ---------------------------------------------------------------------------
+// T10 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — Pending can move to In Progress
+void testPendingCanMoveToInProgress()
+{
+    const std::string dbPath = makeTempDbPath("t10_pending_to_inprogress");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "In Progress");
+
+        assert(result.success);
+        assert(!result.notFound);
+        assert(!result.unsupportedStatus);
+        assert(!result.invalidTransition);
+        assert(result.serviceRequest.has_value());
+        assert(result.serviceRequest->getStatus() == "In Progress");
+
+        // Verify the change is persisted.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "In Progress");
+    }
+}
+
+// Test 2 — Pending can move to Cancelled
+void testPendingCanMoveToCancelled()
+{
+    const std::string dbPath = makeTempDbPath("t10_pending_to_cancelled");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Cancelled");
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+        assert(result.serviceRequest->getStatus() == "Cancelled");
+
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Cancelled");
+    }
+}
+
+// Test 3 — In Progress can move to Completed
+void testInProgressCanMoveToCompleted()
+{
+    const std::string dbPath = makeTempDbPath("t10_inprogress_to_completed");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+        advanceToInProgress(requestId, statusService);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Completed");
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+        assert(result.serviceRequest->getStatus() == "Completed");
+
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Completed");
+    }
+}
+
+// Test 4 — In Progress can move to Cancelled
+void testInProgressCanMoveToCancelled()
+{
+    const std::string dbPath = makeTempDbPath("t10_inprogress_to_cancelled");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+        advanceToInProgress(requestId, statusService);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Cancelled");
+
+        assert(result.success);
+        assert(result.serviceRequest.has_value());
+        assert(result.serviceRequest->getStatus() == "Cancelled");
+
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Cancelled");
+    }
+}
+
+// Test 5 — Pending cannot move directly to Completed
+void testPendingCannotMoveDirectlyToCompleted()
+{
+    const std::string dbPath = makeTempDbPath("t10_pending_not_completed");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Completed");
+
+        assert(!result.success);
+        assert(result.invalidTransition);
+
+        // Persistence must remain Pending.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Pending");
+    }
+}
+
+// Test 6 — In Progress cannot return to Pending
+void testInProgressCannotReturnToPending()
+{
+    const std::string dbPath = makeTempDbPath("t10_inprogress_not_pending");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+        advanceToInProgress(requestId, statusService);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Pending");
+
+        assert(!result.success);
+        assert(result.invalidTransition);
+
+        // Persistence must remain In Progress.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "In Progress");
+    }
+}
+
+// Test 7 — Completed is terminal
+void testCompletedIsTerminal()
+{
+    const std::string dbPath = makeTempDbPath("t10_completed_terminal");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+        advanceToInProgress(requestId, statusService);
+        statusService.manageStatus(requestId, "Completed");
+
+        // Attempt all three possible transitions away from Completed.
+        const auto toPending =
+            statusService.manageStatus(requestId, "Pending");
+        const auto toInProgress =
+            statusService.manageStatus(requestId, "In Progress");
+        const auto toCancelled =
+            statusService.manageStatus(requestId, "Cancelled");
+
+        assert(!toPending.success    && toPending.invalidTransition);
+        assert(!toInProgress.success && toInProgress.invalidTransition);
+        assert(!toCancelled.success  && toCancelled.invalidTransition);
+
+        // Persistence must remain Completed.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Completed");
+    }
+}
+
+// Test 8 — Cancelled is terminal
+void testCancelledIsTerminal()
+{
+    const std::string dbPath = makeTempDbPath("t10_cancelled_terminal");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+        statusService.manageStatus(requestId, "Cancelled");
+
+        // Attempt all three possible transitions away from Cancelled.
+        const auto toPending =
+            statusService.manageStatus(requestId, "Pending");
+        const auto toInProgress =
+            statusService.manageStatus(requestId, "In Progress");
+        const auto toCompleted =
+            statusService.manageStatus(requestId, "Completed");
+
+        assert(!toPending.success    && toPending.invalidTransition);
+        assert(!toInProgress.success && toInProgress.invalidTransition);
+        assert(!toCompleted.success  && toCompleted.invalidTransition);
+
+        // Persistence must remain Cancelled.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Cancelled");
+    }
+}
+
+// Test 9 — Unsupported status is rejected
+void testUnsupportedStatusIsRejected()
+{
+    const std::string dbPath = makeTempDbPath("t10_unsupported_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Approved");
+
+        assert(!result.success);
+        assert(result.unsupportedStatus);
+        assert(!result.invalidTransition);
+
+        // Persistence must remain Pending.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Pending");
+    }
+}
+
+// Test 10 — Nonexistent Service Request is handled safely
+void testNonexistentServiceRequestIsHandledSafely()
+{
+    const std::string dbPath = makeTempDbPath("t10_not_found");
+
+    {
+        csms::Database db(dbPath);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        // 999999 has never been persisted.
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(999999, "In Progress");
+
+        assert(!result.success);
+        assert(result.notFound);
+        assert(!result.unsupportedStatus);
+        assert(!result.invalidTransition);
+        assert(!result.serviceRequest.has_value());
+
+        // No new record must have been created.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(999999);
+        assert(!stored.has_value());
+    }
+}
+
+// Test 11 — Successful transition preserves Service Request information
+void testSuccessfulTransitionPreservesServiceRequestInformation()
+{
+    const std::string dbPath = makeTempDbPath("t10_info_preserved");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        // Capture all fields before the transition.
+        const std::optional<csms::ServiceRequest> before =
+            requestRepo.findById(requestId);
+        assert(before.has_value());
+
+        statusService.manageStatus(requestId, "In Progress");
+
+        // Retrieve the updated record.
+        const std::optional<csms::ServiceRequest> after =
+            requestRepo.findById(requestId);
+        assert(after.has_value());
+
+        // Only status may change.
+        assert(after->getId()            == before->getId());
+        assert(after->getResidentId()    == before->getResidentId());
+        assert(after->getServiceType()   == before->getServiceType());
+        assert(after->getDescription()   == before->getDescription());
+        assert(after->getDateRequested() == before->getDateRequested());
+
+        // Status must have changed.
+        assert(after->getStatus() == "In Progress");
+        assert(before->getStatus() == "Pending");
+    }
+}
+
+// Test 12 — Invalid transition does not modify persistence
+void testInvalidTransitionDoesNotModifyPersistence()
+{
+    const std::string dbPath = makeTempDbPath("t10_invalid_no_modify");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        // Capture all fields before the invalid attempt.
+        const std::optional<csms::ServiceRequest> before =
+            requestRepo.findById(requestId);
+        assert(before.has_value());
+
+        // Attempt invalid transition: Pending -> Completed.
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Completed");
+        assert(!result.success);
+        assert(result.invalidTransition);
+
+        // Every field must remain unchanged.
+        const std::optional<csms::ServiceRequest> after =
+            requestRepo.findById(requestId);
+        assert(after.has_value());
+
+        assert(after->getId()            == before->getId());
+        assert(after->getResidentId()    == before->getResidentId());
+        assert(after->getServiceType()   == before->getServiceType());
+        assert(after->getDescription()   == before->getDescription());
+        assert(after->getDateRequested() == before->getDateRequested());
+        assert(after->getStatus()        == before->getStatus());
+        assert(after->getStatus()        == "Pending");
+    }
+}
+
+// Test 13 — Same-status request is rejected
+void testSameStatusRequestIsRejected()
+{
+    const std::string dbPath = makeTempDbPath("t10_same_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        // Pending -> Pending must be rejected.
+        const csms::ServiceRequestStatusResult pendingToPending =
+            statusService.manageStatus(requestId, "Pending");
+
+        assert(!pendingToPending.success);
+        assert(pendingToPending.invalidTransition);
+
+        // Persistence must still be Pending.
+        const std::optional<csms::ServiceRequest> stored =
+            requestRepo.findById(requestId);
+        assert(stored.has_value());
+        assert(stored->getStatus() == "Pending");
+
+        // Also verify for In Progress -> In Progress.
+        advanceToInProgress(requestId, statusService);
+
+        const csms::ServiceRequestStatusResult inProgressToInProgress =
+            statusService.manageStatus(requestId, "In Progress");
+
+        assert(!inProgressToInProgress.success);
+        assert(inProgressToInProgress.invalidTransition);
+
+        const std::optional<csms::ServiceRequest> stored2 =
+            requestRepo.findById(requestId);
+        assert(stored2.has_value());
+        assert(stored2->getStatus() == "In Progress");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Student-Designed Test
+//
+// Test Name: testMultipleSequentialTransitionsFollowCorrectWorkflow
+//
+// What it verifies:
+//   A single Service Request is walked through the complete forward workflow:
+//   Pending -> In Progress -> Completed. After each step the persisted status
+//   is confirmed, and a subsequent invalid attempt (Completed -> Cancelled) is
+//   verified to leave the terminal state intact. This proves that the
+//   transition rules hold correctly across three consecutive operations on the
+//   same request, not just in isolated single-step tests.
+//
+// Why I added this test:
+//   Individual required tests each verify a single hop in isolation. A bug
+//   could theoretically pass all individual tests but fail when multiple
+//   transitions are applied sequentially to the same row (e.g. if updateStatus
+//   accidentally resets fields or targets the wrong row). This test exercises
+//   the full lifecycle path end-to-end, which the required tests do not
+//   collectively cover as a sequence on one record.
+// ---------------------------------------------------------------------------
+
+void testMultipleSequentialTransitionsFollowCorrectWorkflow()
+{
+    const std::string dbPath = makeTempDbPath("t10_sequential_transitions");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        // Step 1 — Pending -> In Progress
+        {
+            const csms::ServiceRequestStatusResult r =
+                statusService.manageStatus(requestId, "In Progress");
+            assert(r.success);
+            const std::optional<csms::ServiceRequest> s =
+                requestRepo.findById(requestId);
+            assert(s.has_value());
+            assert(s->getStatus() == "In Progress");
+        }
+
+        // Step 2 — In Progress -> Completed
+        {
+            const csms::ServiceRequestStatusResult r =
+                statusService.manageStatus(requestId, "Completed");
+            assert(r.success);
+            const std::optional<csms::ServiceRequest> s =
+                requestRepo.findById(requestId);
+            assert(s.has_value());
+            assert(s->getStatus() == "Completed");
+        }
+
+        // Step 3 — Completed -> Cancelled must fail (terminal state)
+        {
+            const csms::ServiceRequestStatusResult r =
+                statusService.manageStatus(requestId, "Cancelled");
+            assert(!r.success);
+            assert(r.invalidTransition);
+            const std::optional<csms::ServiceRequest> s =
+                requestRepo.findById(requestId);
+            assert(s.has_value());
+            assert(s->getStatus() == "Completed");
+        }
+
+        // Non-status fields must remain intact throughout all transitions.
+        const std::optional<csms::ServiceRequest> final =
+            requestRepo.findById(requestId);
+        assert(final.has_value());
+        assert(final->getId().has_value());
+        assert(final->getId().value() == requestId);
+        assert(final->getServiceType()   == "Barangay Clearance");
+        assert(final->getDescription()   ==
+               "Requesting barangay clearance for employment requirements.");
+        assert(final->getDateRequested() == "2026-09-25");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T10 — Service Request Status Management DROGON_TEST wrapper
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestStatusTest)
+{
+    testPendingCanMoveToInProgress();
+    testPendingCanMoveToCancelled();
+    testInProgressCanMoveToCompleted();
+    testInProgressCanMoveToCancelled();
+    testPendingCannotMoveDirectlyToCompleted();
+    testInProgressCannotReturnToPending();
+    testCompletedIsTerminal();
+    testCancelledIsTerminal();
+    testUnsupportedStatusIsRejected();
+    testNonexistentServiceRequestIsHandledSafely();
+    testSuccessfulTransitionPreservesServiceRequestInformation();
+    testInvalidTransitionDoesNotModifyPersistence();
+    testSameStatusRequestIsRejected();
+    testMultipleSequentialTransitionsFollowCorrectWorkflow();
+}

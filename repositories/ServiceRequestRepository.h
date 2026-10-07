@@ -50,6 +50,19 @@ public:
      */
     std::optional<ServiceRequest> findById(int requestId);
 
+    /**
+     * Updates only the status column of an existing ServiceRequest.
+     *
+     * The caller is responsible for verifying that the ServiceRequest exists
+     * and that the transition is valid before calling this method.
+     *
+     * Returns the full updated ServiceRequest retrieved from persistence
+     * after the UPDATE so the caller receives the authoritative persisted state.
+     *
+     * Throws std::runtime_error if the UPDATE fails.
+     */
+    ServiceRequest updateStatus(int requestId, const std::string& newStatus);
+
 private:
     Database& database_;
 };

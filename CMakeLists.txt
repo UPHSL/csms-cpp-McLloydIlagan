@@ -40,7 +40,9 @@ add_executable(${PROJECT_NAME}
     services/ResidentUpdateService.cc
     services/ResidentDeactivationService.cc
     services/ServiceRequestSubmissionService.cc
+    services/ServiceRequestStatusService.cc
 )
+
 
 # ##############################################################################
 # If you include the drogon source code locally in your project, use this method
