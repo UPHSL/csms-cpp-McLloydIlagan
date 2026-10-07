@@ -5,12 +5,15 @@ enable_testing()
 add_executable(csms_cpp_test
     test_main.cc
     ../models/ResidentValidator.cc
+    ../models/ServiceRequestValidator.cc
     ../database/Database.cc
     ../repositories/ResidentRepository.cc
+    ../repositories/ServiceRequestRepository.cc
     ../services/ResidentRegistrationService.cc
     ../services/ResidentQueryService.cc
     ../services/ResidentUpdateService.cc
     ../services/ResidentDeactivationService.cc
+    ../services/ServiceRequestSubmissionService.cc
 )
 
 target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
@@ -44,5 +47,7 @@ set_tests_properties(
     ResidentUpdateTest
     ResidentDeactivationTest
     ServiceRequestDomainTest
+    ServiceRequestValidationTest
+    ServiceRequestSubmissionTest
     PROPERTIES TIMEOUT 10
 )

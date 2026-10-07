@@ -31,12 +31,15 @@ add_executable(${PROJECT_NAME}
     controllers/HomeController.cc
     controllers/HealthController.cc
     models/ResidentValidator.cc
+    models/ServiceRequestValidator.cc
     database/Database.cc
     repositories/ResidentRepository.cc
+    repositories/ServiceRequestRepository.cc
     services/ResidentRegistrationService.cc
     services/ResidentQueryService.cc
     services/ResidentUpdateService.cc
     services/ResidentDeactivationService.cc
+    services/ServiceRequestSubmissionService.cc
 )
 
 # ##############################################################################
