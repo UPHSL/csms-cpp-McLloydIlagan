@@ -14,6 +14,7 @@ add_executable(csms_cpp_test
     ../services/ResidentUpdateService.cc
     ../services/ResidentDeactivationService.cc
     ../services/ServiceRequestSubmissionService.cc
+    ../services/ServiceRequestStatusService.cc
 )
 
 target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
@@ -49,5 +50,6 @@ set_tests_properties(
     ServiceRequestDomainTest
     ServiceRequestValidationTest
     ServiceRequestSubmissionTest
+    ServiceRequestStatusTest
     PROPERTIES TIMEOUT 10
 )
