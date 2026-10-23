@@ -162,4 +162,123 @@ ServiceRequest ServiceRequestRepository::updateStatus(
     return updated.value();
 }
 
+// ---------------------------------------------------------------------------
+// collectRows
+// ---------------------------------------------------------------------------
+
+std::vector<ServiceRequest>
+ServiceRequestRepository::collectRows(sqlite3_stmt* stmt)
+{
+    std::vector<ServiceRequest> results;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const int id         = sqlite3_column_int(stmt, 0);
+        const int residentId = sqlite3_column_int(stmt, 1);
+
+        const std::string serviceType = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 2));
+        const std::string description = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 3));
+        const std::string dateRequested = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 4));
+        const std::string status = reinterpret_cast<const char*>(
+            sqlite3_column_text(stmt, 5));
+
+        results.emplace_back(id, residentId, serviceType,
+                             description, dateRequested, status);
+    }
+
+    sqlite3_finalize(stmt);
+    return results;
+}
+
+// ---------------------------------------------------------------------------
+// findAll
+// ---------------------------------------------------------------------------
+
+std::vector<ServiceRequest> ServiceRequestRepository::findAll()
+{
+    const char* sql =
+        "SELECT DISTINCT id, resident_id, service_type, description, "
+        "       date_requested, status "
+        "FROM service_requests "
+        "ORDER BY date_requested DESC, id DESC;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare service_requests findAll SELECT: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+
+    return collectRows(stmt);
+}
+
+// ---------------------------------------------------------------------------
+// search
+// ---------------------------------------------------------------------------
+
+std::vector<ServiceRequest> ServiceRequestRepository::search(
+    const std::string& searchTerm,
+    const std::string& statusFilter)
+{
+    const bool hasText   = !searchTerm.empty();
+    const bool hasStatus = !statusFilter.empty();
+
+    std::string sql =
+        "SELECT DISTINCT id, resident_id, service_type, description, "
+        "       date_requested, status "
+        "FROM service_requests ";
+
+    if (hasText && hasStatus)
+    {
+        sql += "WHERE (LOWER(service_type) LIKE ? OR LOWER(description) LIKE ?) "
+               "AND status = ? ";
+    }
+    else if (hasText)
+    {
+        sql += "WHERE (LOWER(service_type) LIKE ? OR LOWER(description) LIKE ?) ";
+    }
+    else if (hasStatus)
+    {
+        sql += "WHERE status = ? ";
+    }
+
+    sql += "ORDER BY date_requested DESC, id DESC;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql.c_str(), -1, &stmt, nullptr);
+
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare service_requests search SELECT: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+
+    int bindIndex = 1;
+
+    if (hasText)
+    {
+        const std::string pattern = "%" + searchTerm + "%";
+        sqlite3_bind_text(stmt, bindIndex++, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, bindIndex++, pattern.c_str(), -1, SQLITE_TRANSIENT);
+    }
+
+    if (hasStatus)
+    {
+        sqlite3_bind_text(stmt, bindIndex++, statusFilter.c_str(), -1, SQLITE_TRANSIENT);
+    }
+
+    return collectRows(stmt);
+}
+
 } // namespace csms

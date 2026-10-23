@@ -3438,3 +3438,436 @@ DROGON_TEST(ServiceRequestStatusTest)
     testSameStatusRequestIsRejected();
     testMultipleSequentialTransitionsFollowCorrectWorkflow();
 }
+
+// ---------------------------------------------------------------------------
+// T11 includes
+// ---------------------------------------------------------------------------
+
+#include "services/ServiceRequestQueryService.h"
+
+// ---------------------------------------------------------------------------
+// T11 Helpers
+// ---------------------------------------------------------------------------
+
+// Saves a ServiceRequest directly through the repository.
+// Returns the generated id.
+static int saveServiceRequest(
+    csms::ServiceRequestRepository& repo,
+    int residentId,
+    const std::string& serviceType,
+    const std::string& description,
+    const std::string& dateRequested,
+    const std::string& status = "Pending")
+{
+    csms::ServiceRequest r(residentId, serviceType, description,
+                           dateRequested, status);
+    const csms::ServiceRequest saved = repo.save(r);
+    return saved.getId().value();
+}
+
+// ---------------------------------------------------------------------------
+// T11 Test Helper Functions
+// ---------------------------------------------------------------------------
+
+// Test 1 — List all Service Requests returns all persisted records
+void testListAllServiceRequestsReturnsAllRecords()
+{
+    const std::string dbPath = makeTempDbPath("t11_list_all");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Desc 1", "2026-09-01");
+        saveServiceRequest(requestRepo, residentId,
+                           "Certificate Request", "Desc 2", "2026-09-15");
+        saveServiceRequest(requestRepo, residentId,
+                           "Community Assistance", "Desc 3", "2026-09-20");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.listServiceRequests();
+
+        assert(result.size() == 3u);
+    }
+}
+
+// Test 2 — Empty database returns empty collection (not null, not exception)
+void testListServiceRequestsWhenEmptyReturnsEmptyCollection()
+{
+    const std::string dbPath = makeTempDbPath("t11_list_empty");
+
+    {
+        csms::Database db(dbPath);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const std::vector<csms::ServiceRequest> result =
+            service.listServiceRequests();
+
+        assert(result.empty());
+    }
+}
+
+// Test 3 — List uses required order: date_requested DESC, id DESC
+void testListServiceRequestsOrderByDateDescThenIdDesc()
+{
+    const std::string dbPath = makeTempDbPath("t11_ordering");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        // Insert in an order that differs from the expected display order.
+        // IDs are assigned sequentially by SQLite AUTOINCREMENT.
+        const int id8  = saveServiceRequest(requestRepo, residentId,
+                             "Type A", "Desc A", "2026-09-15");
+        const int id12 = saveServiceRequest(requestRepo, residentId,
+                             "Type B", "Desc B", "2026-09-18");
+        const int id15 = saveServiceRequest(requestRepo, residentId,
+                             "Type C", "Desc C", "2026-09-18");
+        const int id20 = saveServiceRequest(requestRepo, residentId,
+                             "Type D", "Desc D", "2026-09-10");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.listServiceRequests();
+
+        assert(result.size() == 4u);
+
+        // Expected: id15 (2026-09-18), id12 (2026-09-18),
+        //           id8  (2026-09-15), id20 (2026-09-10)
+        assert(result[0].getId().value() == id15);
+        assert(result[1].getId().value() == id12);
+        assert(result[2].getId().value() == id8);
+        assert(result[3].getId().value() == id20);
+    }
+}
+
+// Test 4 — View one Service Request by ID returns correct record
+void testViewServiceRequestByIdReturnsCorrectRecord()
+{
+    const std::string dbPath = makeTempDbPath("t11_view_by_id");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        const int requestId = saveServiceRequest(
+            requestRepo, residentId,
+            "Certificate Request",
+            "Requesting certificate of residency.",
+            "2026-09-20");
+
+        const std::optional<csms::ServiceRequest> result =
+            service.viewServiceRequest(requestId);
+
+        assert(result.has_value());
+        assert(result->getId().has_value());
+        assert(result->getId().value()    == requestId);
+        assert(result->getResidentId()    == residentId);
+        assert(result->getServiceType()   == "Certificate Request");
+        assert(result->getDescription()   == "Requesting certificate of residency.");
+        assert(result->getDateRequested() == "2026-09-20");
+        assert(result->getStatus()        == "Pending");
+    }
+}
+
+// Test 5 — View nonexistent Service Request returns nullopt (no crash)
+void testViewNonexistentServiceRequestReturnsNullopt()
+{
+    const std::string dbPath = makeTempDbPath("t11_view_not_found");
+
+    {
+        csms::Database db(dbPath);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const std::optional<csms::ServiceRequest> result =
+            service.viewServiceRequest(999999);
+
+        assert(!result.has_value());
+    }
+}
+
+// Test 6 — Search by serviceType partial term (case-insensitive)
+void testSearchByServiceTypePartialCaseInsensitive()
+{
+    const std::string dbPath = makeTempDbPath("t11_search_service_type");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Some description", "2026-09-01");
+        saveServiceRequest(requestRepo, residentId,
+                           "Certificate Request", "Some description", "2026-09-02");
+
+        // Mixed-case partial match against serviceType.
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("BARANGAY");
+
+        assert(result.size() == 1u);
+        assert(result[0].getServiceType() == "Barangay Clearance");
+    }
+}
+
+// Test 7 — Search by description partial term (case-insensitive)
+void testSearchByDescriptionPartialCaseInsensitive()
+{
+    const std::string dbPath = makeTempDbPath("t11_search_description");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Type A", "Requesting employment clearance", "2026-09-01");
+        saveServiceRequest(requestRepo, residentId,
+                           "Type B", "General community help", "2026-09-02");
+
+        // Mixed-case partial match against description.
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("EMPLOYMENT");
+
+        assert(result.size() == 1u);
+        assert(result[0].getDescription() == "Requesting employment clearance");
+    }
+}
+
+// Test 8 — Blank search term returns all Service Requests
+void testBlankSearchTermReturnsAllServiceRequests()
+{
+    const std::string dbPath = makeTempDbPath("t11_blank_search");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Type A", "Desc A", "2026-09-01");
+        saveServiceRequest(requestRepo, residentId,
+                           "Type B", "Desc B", "2026-09-02");
+
+        // Whitespace-only term must behave like listServiceRequests().
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("   ");
+
+        assert(result.size() == 2u);
+    }
+}
+
+// Test 9 — Filter by status returns only matching records
+void testFilterByStatusReturnsMatchingRecordsOnly()
+{
+    const std::string dbPath = makeTempDbPath("t11_filter_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Type A", "Desc A", "2026-09-01", "Pending");
+        saveServiceRequest(requestRepo, residentId,
+                           "Type B", "Desc B", "2026-09-02", "In Progress");
+        saveServiceRequest(requestRepo, residentId,
+                           "Type C", "Desc C", "2026-09-03", "Pending");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("", "Pending");
+
+        assert(result.size() == 2u);
+
+        for (const auto& sr : result)
+        {
+            assert(sr.getStatus() == "Pending");
+        }
+    }
+}
+
+// Test 10 — Combine text search and status filter
+void testCombineTextSearchAndStatusFilter()
+{
+    const std::string dbPath = makeTempDbPath("t11_search_and_filter");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Desc A", "2026-09-01", "Pending");
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Desc B", "2026-09-02", "Completed");
+        saveServiceRequest(requestRepo, residentId,
+                           "Certificate Request", "Desc C", "2026-09-03", "Pending");
+
+        // Only the Barangay Clearance + Pending combination should match.
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("Barangay", "Pending");
+
+        assert(result.size() == 1u);
+        assert(result[0].getServiceType() == "Barangay Clearance");
+        assert(result[0].getStatus()      == "Pending");
+    }
+}
+
+// Test 11 — Search with no match returns empty collection
+void testSearchWithNoMatchReturnsEmptyCollection()
+{
+    const std::string dbPath = makeTempDbPath("t11_search_no_match");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Desc", "2026-09-01");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("ZzzNoMatchTerm");
+
+        assert(result.empty());
+    }
+}
+
+// Test 12 — Unsupported status filter throws std::invalid_argument
+void testUnsupportedStatusFilterThrows()
+{
+    const std::string dbPath = makeTempDbPath("t11_invalid_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        bool threw = false;
+        try
+        {
+            service.searchServiceRequests("", "Approved");
+        }
+        catch (const std::invalid_argument&)
+        {
+            threw = true;
+        }
+
+        assert(threw);
+    }
+}
+
+// Test 13 — Search preserves all Service Request information
+void testSearchPreservesAllServiceRequestInformation()
+{
+    const std::string dbPath = makeTempDbPath("t11_search_info");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        const int requestId = saveServiceRequest(
+            requestRepo, residentId,
+            "Certificate Request",
+            "Requesting certificate of residency.",
+            "2026-09-15");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("Certificate");
+
+        assert(result.size() == 1u);
+        assert(result[0].getId().has_value());
+        assert(result[0].getId().value()    == requestId);
+        assert(result[0].getResidentId()    == residentId);
+        assert(result[0].getServiceType()   == "Certificate Request");
+        assert(result[0].getDescription()   == "Requesting certificate of residency.");
+        assert(result[0].getDateRequested() == "2026-09-15");
+        assert(result[0].getStatus()        == "Pending");
+    }
+}
+
+// Test 14 — Record matching both serviceType and description appears only once
+void testSearchDoesNotDuplicateWhenBothColumnsMatch()
+{
+    const std::string dbPath = makeTempDbPath("t11_no_duplicate");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService service(requestRepo);
+
+        const int residentId = saveActiveResident(residentRepo);
+
+        // The term "Clearance" appears in both serviceType and description.
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance",
+                           "Clearance for employment requirements.",
+                           "2026-09-01");
+
+        const std::vector<csms::ServiceRequest> result =
+            service.searchServiceRequests("Clearance");
+
+        // Must appear exactly once despite matching both columns.
+        assert(result.size() == 1u);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T11 Drogon test wrapper — runs all T11 query scenarios
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestQueryTest)
+{
+    testListAllServiceRequestsReturnsAllRecords();
+    testListServiceRequestsWhenEmptyReturnsEmptyCollection();
+    testListServiceRequestsOrderByDateDescThenIdDesc();
+    testViewServiceRequestByIdReturnsCorrectRecord();
+    testViewNonexistentServiceRequestReturnsNullopt();
+    testSearchByServiceTypePartialCaseInsensitive();
+    testSearchByDescriptionPartialCaseInsensitive();
+    testBlankSearchTermReturnsAllServiceRequests();
+    testFilterByStatusReturnsMatchingRecordsOnly();
+    testCombineTextSearchAndStatusFilter();
+    testSearchWithNoMatchReturnsEmptyCollection();
+    testUnsupportedStatusFilterThrows();
+    testSearchPreservesAllServiceRequestInformation();
+    testSearchDoesNotDuplicateWhenBothColumnsMatch();
+}
