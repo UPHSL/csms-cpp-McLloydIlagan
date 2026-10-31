@@ -53,5 +53,6 @@ set_tests_properties(
     ServiceRequestSubmissionTest
     ServiceRequestStatusTest
     ServiceRequestQueryTest
+    ResidentManagementInterfaceTest
     PROPERTIES TIMEOUT 10
 )

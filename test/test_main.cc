@@ -3871,3 +3871,320 @@ DROGON_TEST(ServiceRequestQueryTest)
     testSearchPreservesAllServiceRequestInformation();
     testSearchDoesNotDuplicateWhenBothColumnsMatch();
 }
+
+// ---------------------------------------------------------------------------
+// T12 — Resident Management Interface (Service-layer integration tests)
+//
+// T12 tests exercise the service capabilities that the Resident Management
+// Interface exposes through its handlers: listing, searching, registering,
+// updating, deactivating, and safe handling of missing records.
+//
+// All tests use makeTempDbPath for isolation and follow the assert()-based
+// helper pattern established in T04–T07.
+// ---------------------------------------------------------------------------
+
+// Test 1 — List residents returns all persisted residents
+void testT12ListResidentsReturnsAll()
+{
+    const std::string dbPath = makeTempDbPath("t12_list_all");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentQueryService query(repo);
+
+    saveResident(repo, "Ana",   "Reyes");
+    saveResident(repo, "Ben",   "Santos");
+    saveResident(repo, "Clara", "Tan");
+
+    const auto result = query.listResidents();
+
+    assert(result.size() == 3u);
+}
+
+// Test 2 — List residents returns empty collection when none exist
+void testT12ListResidentsReturnsEmptyWhenNone()
+{
+    const std::string dbPath = makeTempDbPath("t12_list_empty");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentQueryService query(repo);
+
+    const auto result = query.listResidents();
+
+    assert(result.empty());
+}
+
+// Test 3 — List residents uses T05 ordering (lastName ASC, firstName ASC, id ASC)
+void testT12ListResidentsUsesCorrectOrdering()
+{
+    const std::string dbPath = makeTempDbPath("t12_ordering");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentQueryService query(repo);
+
+    saveResident(repo, "Pedro", "Cruz");
+    saveResident(repo, "Ana",   "Santos");
+    saveResident(repo, "Juan",  "Cruz");
+
+    const auto result = query.listResidents();
+
+    assert(result.size() == 3u);
+    // Cruz/Juan < Cruz/Pedro < Santos/Ana
+    assert(result[0].getLastName()  == "Cruz");
+    assert(result[0].getFirstName() == "Juan");
+    assert(result[1].getLastName()  == "Cruz");
+    assert(result[1].getFirstName() == "Pedro");
+    assert(result[2].getLastName()  == "Santos");
+}
+
+// Test 4 — Search residents by partial first name (case-insensitive)
+void testT12SearchByFirstName()
+{
+    const std::string dbPath = makeTempDbPath("t12_search_first");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentQueryService query(repo);
+
+    saveResident(repo, "Juan",  "Cruz");
+    saveResident(repo, "Maria", "Santos");
+
+    const auto result = query.searchResidents("jua");
+
+    assert(result.size() == 1u);
+    assert(result[0].getFirstName() == "Juan");
+}
+
+// Test 5 — Search residents by partial last name (case-insensitive)
+void testT12SearchByLastName()
+{
+    const std::string dbPath = makeTempDbPath("t12_search_last");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentQueryService query(repo);
+
+    saveResident(repo, "Juan",  "Dela Cruz");
+    saveResident(repo, "Maria", "Santos");
+
+    const auto result = query.searchResidents("DELA");
+
+    assert(result.size() == 1u);
+    assert(result[0].getLastName() == "Dela Cruz");
+}
+
+// Test 6 — Register a valid resident succeeds
+void testT12RegisterValidResidentSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t12_register");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentRegistrationService service(validator, repo);
+
+    csms::Resident r("Juan", "Dela Cruz",
+                     "Barangay Santo Tomas", "09171234567", "juan@example.com");
+
+    const auto result = service.registerResident(r);
+
+    assert(result.success);
+    assert(result.resident.has_value());
+    assert(result.resident->getId() > 0);
+    assert(result.errors.empty());
+}
+
+// Test 7 — Register invalid resident returns validation errors
+void testT12RegisterInvalidResidentReturnsErrors()
+{
+    const std::string dbPath = makeTempDbPath("t12_register_invalid");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentRegistrationService service(validator, repo);
+
+    // Empty first name — fails T02
+    csms::Resident r("", "Dela Cruz",
+                     "Barangay Santo Tomas", "09171234567", "juan@example.com");
+
+    const auto result = service.registerResident(r);
+
+    assert(!result.success);
+    assert(!result.errors.empty());
+    assert(containsValidationError(result.errors, "firstName"));
+    assert(!result.resident.has_value());
+}
+
+// Test 8 — Registered resident is visible through listing
+void testT12RegisteredResidentAppearsInListing()
+{
+    const std::string dbPath = makeTempDbPath("t12_register_visible");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentRegistrationService regService(validator, repo);
+    csms::ResidentQueryService queryService(repo);
+
+    csms::Resident r("Ana", "Santos",
+                     "123 Mabini St", "09171234567", "ana@example.com");
+
+    const auto regResult = regService.registerResident(r);
+    assert(regResult.success);
+
+    const auto listed = queryService.listResidents();
+    assert(listed.size() == 1u);
+    assert(listed[0].getFirstName() == "Ana");
+}
+
+// Test 9 — Update resident with valid data succeeds
+void testT12UpdateResidentSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t12_update");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentUpdateService service(validator, repo);
+
+    csms::Resident original("Juan", "Cruz",
+                             "Old Address", "09171234567", "juan@example.com");
+    const int id = repo.save(original).getId();
+
+    csms::Resident proposed("Juan Miguel", "Dela Cruz",
+                             "New Address", "09181234567", "jm@example.com");
+
+    const auto result = service.updateResident(id, proposed);
+
+    assert(result.success);
+    assert(result.resident.has_value());
+    assert(result.resident->getFirstName() == "Juan Miguel");
+    assert(result.resident->getId()        == id);
+}
+
+// Test 10 — Update resident with invalid data returns validation errors
+void testT12UpdateResidentInvalidReturnsErrors()
+{
+    const std::string dbPath = makeTempDbPath("t12_update_invalid");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentUpdateService service(validator, repo);
+
+    csms::Resident original("Juan", "Cruz",
+                             "Address", "09171234567", "juan@example.com");
+    const int id = repo.save(original).getId();
+
+    // Empty first name — fails T02
+    csms::Resident proposed("", "Cruz",
+                             "Address", "09171234567", "juan@example.com");
+
+    const auto result = service.updateResident(id, proposed);
+
+    assert(!result.success);
+    assert(!result.notFound);
+    assert(containsValidationError(result.errors, "firstName"));
+}
+
+// Test 11 — Update nonexistent resident sets notFound flag
+void testT12UpdateNonexistentResidentReturnsNotFound()
+{
+    const std::string dbPath = makeTempDbPath("t12_update_not_found");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentValidator validator;
+    csms::ResidentUpdateService service(validator, repo);
+
+    csms::Resident proposed("Juan", "Cruz",
+                             "Address", "09171234567", "juan@example.com");
+
+    const auto result = service.updateResident(999999, proposed);
+
+    assert(!result.success);
+    assert(result.notFound);
+}
+
+// Test 12 — Deactivate active resident succeeds and sets status Inactive
+void testT12DeactivateActiveResidentSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t12_deactivate");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentDeactivationService service(repo);
+
+    csms::Resident r("Juan", "Cruz",
+                     "Address", "09171234567", "juan@example.com", "Active");
+    const int id = repo.save(r).getId();
+
+    const auto result = service.deactivateResident(id);
+
+    assert(result.success);
+    assert(!result.notFound);
+    assert(result.resident.has_value());
+    assert(result.resident->getStatus() == "Inactive");
+}
+
+// Test 13 — Inactive resident remains visible in listing (T05 does not filter by status)
+void testT12InactiveResidentRemainsVisible()
+{
+    const std::string dbPath = makeTempDbPath("t12_inactive_visible");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentDeactivationService deactivationService(repo);
+    csms::ResidentQueryService queryService(repo);
+
+    csms::Resident r("Maria", "Santos",
+                     "Address", "09171234567", "maria@example.com", "Active");
+    const int id = repo.save(r).getId();
+
+    deactivationService.deactivateResident(id);
+
+    const auto listed = queryService.listResidents();
+    assert(listed.size() == 1u);
+    assert(listed[0].getStatus() == "Inactive");
+}
+
+// Test 14 — Deactivate nonexistent resident sets notFound flag safely
+void testT12DeactivateNonexistentResidentReturnsNotFound()
+{
+    const std::string dbPath = makeTempDbPath("t12_deactivate_not_found");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository repo(db);
+    csms::ResidentDeactivationService service(repo);
+
+    const auto result = service.deactivateResident(999999);
+
+    assert(!result.success);
+    assert(result.notFound);
+    assert(!result.resident.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// T12 Drogon test wrapper — runs all T12 Resident Management Interface tests
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ResidentManagementInterfaceTest)
+{
+    testT12ListResidentsReturnsAll();
+    testT12ListResidentsReturnsEmptyWhenNone();
+    testT12ListResidentsUsesCorrectOrdering();
+    testT12SearchByFirstName();
+    testT12SearchByLastName();
+    testT12RegisterValidResidentSucceeds();
+    testT12RegisterInvalidResidentReturnsErrors();
+    testT12RegisteredResidentAppearsInListing();
+    testT12UpdateResidentSucceeds();
+    testT12UpdateResidentInvalidReturnsErrors();
+    testT12UpdateNonexistentResidentReturnsNotFound();
+    testT12DeactivateActiveResidentSucceeds();
+    testT12InactiveResidentRemainsVisible();
+    testT12DeactivateNonexistentResidentReturnsNotFound();
+}
