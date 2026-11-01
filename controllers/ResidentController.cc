@@ -125,7 +125,7 @@ void ResidentController::index(
 
     std::ostringstream body;
 
-    body << R"(<nav><a href="/">&#8592; Home</a></nav>)"
+    body << R"(<nav><a href="/">&#8592; Home</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Resident Management</h1>)";
 
     // Toolbar: search form + register button

@@ -4188,3 +4188,602 @@ DROGON_TEST(ResidentManagementInterfaceTest)
     testT12InactiveResidentRemainsVisible();
     testT12DeactivateNonexistentResidentReturnsNotFound();
 }
+
+// ---------------------------------------------------------------------------
+// T13 — Service Request Management Interface (Service-layer integration tests)
+// ---------------------------------------------------------------------------
+
+// Helper — saves an Active Resident for T13 tests and returns its id.
+static int saveActiveResidentForT13(csms::ResidentRepository& repo)
+{
+    csms::Resident r("Test", "User", "Test Address", "09171234567", "test@example.com");
+    return repo.save(r).getId();
+}
+
+// Helper — saves a ServiceRequest directly and returns the generated id.
+static int saveServiceRequestForT13(
+    csms::ServiceRequestRepository& repo,
+    int residentId,
+    const std::string& serviceType,
+    const std::string& description,
+    const std::string& dateRequested,
+    const std::string& status = "Pending")
+{
+    csms::ServiceRequest sr(residentId, serviceType, description, dateRequested, status);
+    csms::ServiceRequest saved = repo.save(sr);
+    assert(saved.getId().has_value());
+    return saved.getId().value();
+}
+
+// Test 1 — Valid Service Request submission succeeds
+void testT13SubmitValidRequestSucceeds()
+{
+    const std::string dbPath = makeTempDbPath("t13_submit_success");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(result.success);
+    assert(result.serviceRequest.has_value());
+    assert(result.serviceRequest->getId().value() > 0);
+}
+
+// Test 2 — Submitted Service Request status is Pending
+void testT13SubmitSetsStatusPending()
+{
+    const std::string dbPath = makeTempDbPath("t13_status_pending");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(result.success);
+    assert(result.serviceRequest.has_value());
+
+    const int id = result.serviceRequest->getId().value();
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "Pending");
+}
+
+// Test 3 — Blank serviceType submission fails validation
+void testT13SubmitValidationErrorMissingServiceType()
+{
+    const std::string dbPath = makeTempDbPath("t13_missing_service_type");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "", "Some description", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(!result.success);
+    assert(!result.errors.empty());
+    assert(containsValidationError(result.errors, "serviceType"));
+}
+
+// Test 4 — Blank description submission fails validation
+void testT13SubmitValidationErrorMissingDescription()
+{
+    const std::string dbPath = makeTempDbPath("t13_missing_description");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance", "", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(!result.success);
+    assert(!result.errors.empty());
+    assert(containsValidationError(result.errors, "description"));
+}
+
+// Test 5 — Blank dateRequested submission fails validation
+void testT13SubmitValidationErrorMissingDateRequested()
+{
+    const std::string dbPath = makeTempDbPath("t13_missing_date");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance", "Some description", "");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    assert(!result.success);
+    assert(!result.errors.empty());
+    assert(containsValidationError(result.errors, "dateRequested"));
+}
+
+// Test 6 — Nonexistent Resident prevents submission
+void testT13SubmitResidentNotFound()
+{
+    const std::string dbPath = makeTempDbPath("t13_resident_not_found");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int countBefore = countServiceRequests(dbPath);
+
+    csms::ServiceRequest request(999999, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    const int countAfter = countServiceRequests(dbPath);
+
+    assert(!result.success);
+    assert(result.residentNotFound);
+    assert(countAfter == countBefore);
+}
+
+// Test 7 — Inactive Resident cannot submit
+void testT13SubmitInactiveResidentRejected()
+{
+    const std::string dbPath = makeTempDbPath("t13_inactive_resident");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int inactiveId = saveInactiveResident(residentRepo);
+
+    const int countBefore = countServiceRequests(dbPath);
+
+    csms::ServiceRequest request(inactiveId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult result =
+        submissionService.submitRequest(request);
+
+    const int countAfter = countServiceRequests(dbPath);
+
+    assert(!result.success);
+    assert(result.residentInactive);
+    assert(countAfter == countBefore);
+}
+
+// Test 8 — List returns all submitted requests
+void testT13ListReturnsAllSubmittedRequests()
+{
+    const std::string dbPath = makeTempDbPath("t13_list_all");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest r1(residentId, "Type A", "Desc A", "2026-09-01");
+    csms::ServiceRequest r2(residentId, "Type B", "Desc B", "2026-09-02");
+    csms::ServiceRequest r3(residentId, "Type C", "Desc C", "2026-09-03");
+
+    submissionService.submitRequest(r1);
+    submissionService.submitRequest(r2);
+    submissionService.submitRequest(r3);
+
+    const auto result = queryService.listServiceRequests();
+
+    assert(result.size() == 3u);
+}
+
+// Test 9 — View by ID returns correct request
+void testT13ViewByIdReturnsCorrectRequest()
+{
+    const std::string dbPath = makeTempDbPath("t13_view_by_id");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Certificate Request",
+                                 "Requesting certificate.", "2026-09-20");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    assert(submitResult.serviceRequest.has_value());
+
+    const int id = submitResult.serviceRequest->getId().value();
+
+    const std::optional<csms::ServiceRequest> found =
+        queryService.viewServiceRequest(id);
+
+    assert(found.has_value());
+    assert(found->getId().value()    == id);
+    assert(found->getResidentId()    == residentId);
+    assert(found->getServiceType()   == "Certificate Request");
+    assert(found->getDescription()   == "Requesting certificate.");
+    assert(found->getDateRequested() == "2026-09-20");
+    assert(found->getStatus()        == "Pending");
+}
+
+// Test 10 — View nonexistent request returns nullopt
+void testT13ViewNonexistentReturnsNullopt()
+{
+    const std::string dbPath = makeTempDbPath("t13_view_not_found");
+
+    csms::Database db(dbPath);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const std::optional<csms::ServiceRequest> result =
+        queryService.viewServiceRequest(999999);
+
+    assert(!result.has_value());
+}
+
+// Test 11 — Pending can start processing (move to In Progress)
+void testT13ManageStatusPendingToInProgress()
+{
+    const std::string dbPath = makeTempDbPath("t13_pending_to_inprogress");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    const int id = submitResult.serviceRequest->getId().value();
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(id, "In Progress");
+
+    assert(result.success);
+
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "In Progress");
+}
+
+// Test 12 — In Progress can be completed
+void testT13ManageStatusInProgressToCompleted()
+{
+    const std::string dbPath = makeTempDbPath("t13_inprogress_to_completed");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    const int id = submitResult.serviceRequest->getId().value();
+
+    statusService.manageStatus(id, "In Progress");
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(id, "Completed");
+
+    assert(result.success);
+
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "Completed");
+}
+
+// Test 13 — Pending can be cancelled
+void testT13ManageStatusPendingToCancelled()
+{
+    const std::string dbPath = makeTempDbPath("t13_pending_to_cancelled");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    const int id = submitResult.serviceRequest->getId().value();
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(id, "Cancelled");
+
+    assert(result.success);
+
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "Cancelled");
+}
+
+// Test 14 — Completed is terminal
+void testT13ManageStatusCompletedIsTerminal()
+{
+    const std::string dbPath = makeTempDbPath("t13_completed_terminal");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    const int id = submitResult.serviceRequest->getId().value();
+
+    statusService.manageStatus(id, "In Progress");
+    statusService.manageStatus(id, "Completed");
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(id, "Cancelled");
+
+    assert(!result.success);
+    assert(result.invalidTransition);
+
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "Completed");
+}
+
+// Test 15 — Nonexistent request returns notFound
+void testT13ManageStatusNotFoundReturnsNotFound()
+{
+    const std::string dbPath = makeTempDbPath("t13_status_not_found");
+
+    csms::Database db(dbPath);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(999999, "In Progress");
+
+    assert(!result.success);
+    assert(result.notFound);
+}
+
+// Test 16 — Invalid direct transition is rejected
+void testT13InvalidDirectTransitionIsStillRejected()
+{
+    const std::string dbPath = makeTempDbPath("t13_invalid_transition");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+    csms::ServiceRequestStatusService statusService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    const csms::ServiceRequestSubmissionResult submitResult =
+        submissionService.submitRequest(request);
+
+    assert(submitResult.success);
+    const int id = submitResult.serviceRequest->getId().value();
+
+    const csms::ServiceRequestStatusResult result =
+        statusService.manageStatus(id, "Completed");
+
+    assert(result.invalidTransition == true);
+
+    const std::optional<csms::ServiceRequest> stored = requestRepo.findById(id);
+    assert(stored.has_value());
+    assert(stored->getStatus() == "Pending");
+}
+
+// Test 17 — List uses required ordering (dateRequested DESC)
+void testT13RequiredOrderingIsPreserved()
+{
+    const std::string dbPath = makeTempDbPath("t13_ordering");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    saveServiceRequestForT13(requestRepo, residentId, "Type A", "Desc A", "2026-09-10");
+    saveServiceRequestForT13(requestRepo, residentId, "Type B", "Desc B", "2026-09-20");
+    saveServiceRequestForT13(requestRepo, residentId, "Type C", "Desc C", "2026-09-15");
+
+    const std::vector<csms::ServiceRequest> result = queryService.listServiceRequests();
+
+    assert(result.size() == 3u);
+    assert(result[0].getDateRequested() == "2026-09-20");
+    assert(result[1].getDateRequested() == "2026-09-15");
+    assert(result[2].getDateRequested() == "2026-09-10");
+}
+
+// Test 18 — Text search uses T11 behavior (case-insensitive partial)
+void testT13TextSearchUsesTT11Behavior()
+{
+    const std::string dbPath = makeTempDbPath("t13_text_search");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    saveServiceRequestForT13(requestRepo, residentId, "Barangay Clearance", "Desc A", "2026-09-01");
+    saveServiceRequestForT13(requestRepo, residentId, "Certificate Request", "Desc B", "2026-09-02");
+
+    const std::vector<csms::ServiceRequest> result =
+        queryService.searchServiceRequests("cLeAr", "");
+
+    assert(result.size() == 1u);
+    assert(result[0].getServiceType() == "Barangay Clearance");
+}
+
+// Test 19 — Status filter uses T11 behavior
+void testT13StatusFilterUsesT11Behavior()
+{
+    const std::string dbPath = makeTempDbPath("t13_status_filter");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestQueryService queryService(requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    saveServiceRequestForT13(requestRepo, residentId, "Type A", "Desc A", "2026-09-01", "Pending");
+    saveServiceRequestForT13(requestRepo, residentId, "Type B", "Desc B", "2026-09-02", "Completed");
+
+    const std::vector<csms::ServiceRequest> result =
+        queryService.searchServiceRequests("", "Pending");
+
+    assert(result.size() == 1u);
+    assert(result[0].getStatus() == "Pending");
+}
+
+// Test 20 — Submission does not modify the Resident
+void testT13SubmitDoesNotModifyResident()
+{
+    const std::string dbPath = makeTempDbPath("t13_resident_unchanged");
+
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository requestRepo(db);
+    csms::ServiceRequestValidator validator;
+    csms::ServiceRequestSubmissionService submissionService(validator, residentRepo, requestRepo);
+
+    const int residentId = saveActiveResidentForT13(residentRepo);
+
+    // Capture before
+    const std::optional<csms::Resident> before = residentRepo.findById(residentId);
+    assert(before.has_value());
+
+    csms::ServiceRequest request(residentId, "Barangay Clearance",
+                                 "Requesting clearance.", "2026-09-25");
+
+    submissionService.submitRequest(request);
+
+    // Capture after
+    const std::optional<csms::Resident> after = residentRepo.findById(residentId);
+    assert(after.has_value());
+
+    assert(after->getId()            == before->getId());
+    assert(after->getFirstName()     == before->getFirstName());
+    assert(after->getLastName()      == before->getLastName());
+    assert(after->getAddress()       == before->getAddress());
+    assert(after->getContactNumber() == before->getContactNumber());
+    assert(after->getEmail()         == before->getEmail());
+    assert(after->getStatus()        == before->getStatus());
+}
+
+// ---------------------------------------------------------------------------
+// T13 Drogon test wrapper — runs all T13 Service Request Management tests
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(ServiceRequestManagementInterfaceTest)
+{
+    testT13SubmitValidRequestSucceeds();
+    testT13SubmitSetsStatusPending();
+    testT13SubmitValidationErrorMissingServiceType();
+    testT13SubmitValidationErrorMissingDescription();
+    testT13SubmitValidationErrorMissingDateRequested();
+    testT13SubmitResidentNotFound();
+    testT13SubmitInactiveResidentRejected();
+    testT13ListReturnsAllSubmittedRequests();
+    testT13ViewByIdReturnsCorrectRequest();
+    testT13ViewNonexistentReturnsNullopt();
+    testT13ManageStatusPendingToInProgress();
+    testT13ManageStatusInProgressToCompleted();
+    testT13ManageStatusPendingToCancelled();
+    testT13ManageStatusCompletedIsTerminal();
+    testT13ManageStatusNotFoundReturnsNotFound();
+    testT13InvalidDirectTransitionIsStillRejected();
+    testT13RequiredOrderingIsPreserved();
+    testT13TextSearchUsesTT11Behavior();
+    testT13StatusFilterUsesT11Behavior();
+    testT13SubmitDoesNotModifyResident();
+}
