@@ -16,6 +16,7 @@ add_executable(csms_cpp_test
     ../services/ServiceRequestSubmissionService.cc
     ../services/ServiceRequestStatusService.cc
     ../services/ServiceRequestQueryService.cc
+    ../services/DashboardService.cc
 )
 
 target_include_directories(csms_cpp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
@@ -55,5 +56,6 @@ set_tests_properties(
     ServiceRequestQueryTest
     ResidentManagementInterfaceTest
     ServiceRequestManagementInterfaceTest
+    DashboardTest
     PROPERTIES TIMEOUT 10
 )
