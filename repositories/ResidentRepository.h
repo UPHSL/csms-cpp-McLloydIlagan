@@ -110,6 +110,12 @@ public:
      */
     std::vector<Resident> searchByName(const std::string& searchTerm);
 
+    // Returns total count of all persisted Residents
+    int countAll();
+
+    // Returns count of Residents with the given status ("Active" or "Inactive")
+    int countByStatus(const std::string& status);
+
 private:
     Database& database_;
 

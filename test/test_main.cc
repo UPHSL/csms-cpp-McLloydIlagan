@@ -4787,3 +4787,392 @@ DROGON_TEST(ServiceRequestManagementInterfaceTest)
     testT13StatusFilterUsesT11Behavior();
     testT13SubmitDoesNotModifyResident();
 }
+
+// ---------------------------------------------------------------------------
+// T14 includes
+// ---------------------------------------------------------------------------
+
+#include "services/DashboardService.h"
+
+// ---------------------------------------------------------------------------
+// T14 Helpers
+// ---------------------------------------------------------------------------
+
+static int saveResidentForT14(
+    csms::ResidentRepository& repo,
+    const std::string& firstName,
+    const std::string& lastName,
+    const std::string& status = "Active")
+{
+    csms::Resident r(firstName, lastName,
+                     "Address", "09171234567",
+                     firstName + "." + lastName + "@example.com",
+                     status);
+    return repo.save(r).getId();
+}
+
+static int saveServiceRequestForT14(
+    csms::ServiceRequestRepository& repo,
+    int residentId,
+    const std::string& serviceType,
+    const std::string& description,
+    const std::string& dateRequested,
+    const std::string& status = "Pending")
+{
+    csms::ServiceRequest r(residentId, serviceType, description, dateRequested, status);
+    return repo.save(r).getId().value();
+}
+
+// ---------------------------------------------------------------------------
+// T14 Test Helper Functions (15 tests)
+// ---------------------------------------------------------------------------
+
+// Test 1 — getDashboardData() returns without throwing on empty DB
+void testDashboardLoadsSuccessfully()
+{
+    const std::string dbPath = makeTempDbPath("t14_loads");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    bool threw = false;
+    try { svc.getDashboardData(); }
+    catch (...) { threw = true; }
+    assert(!threw);
+}
+
+// Test 2 — empty DB → all counts == 0, recentRequests.empty()
+void testEmptyDashboardDisplaysZeroCounts()
+{
+    const std::string dbPath = makeTempDbPath("t14_empty");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.totalResidents        == 0);
+    assert(data.activeResidents       == 0);
+    assert(data.inactiveResidents     == 0);
+    assert(data.totalServiceRequests  == 0);
+    assert(data.pendingRequests       == 0);
+    assert(data.inProgressRequests    == 0);
+    assert(data.completedRequests     == 0);
+    assert(data.cancelledRequests     == 0);
+    assert(data.openRequests          == 0);
+    assert(data.recentRequests.empty());
+}
+
+// Test 3 — persist 3 residents → totalResidents == 3
+void testTotalResidentCountIsCorrect()
+{
+    const std::string dbPath = makeTempDbPath("t14_total_residents");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    saveResidentForT14(residentRepo, "Ana",   "Reyes");
+    saveResidentForT14(residentRepo, "Ben",   "Santos");
+    saveResidentForT14(residentRepo, "Clara", "Tan");
+
+    const csms::DashboardData data = svc.getDashboardData();
+    assert(data.totalResidents == 3);
+}
+
+// Test 4 — 2 Active + 1 Inactive → correct status counts and total == active + inactive
+void testResidentStatusCountsAreCorrect()
+{
+    const std::string dbPath = makeTempDbPath("t14_resident_status_counts");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    saveResidentForT14(residentRepo, "Ana",  "Reyes",  "Active");
+    saveResidentForT14(residentRepo, "Ben",  "Santos", "Active");
+    saveResidentForT14(residentRepo, "Clara", "Tan",   "Inactive");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.activeResidents   == 2);
+    assert(data.inactiveResidents == 1);
+    assert(data.totalResidents    == 3);
+    assert(data.totalResidents    == data.activeResidents + data.inactiveResidents);
+}
+
+// Test 5 — persist 4 service requests → totalServiceRequests == 4
+void testTotalServiceRequestCountIsCorrect()
+{
+    const std::string dbPath = makeTempDbPath("t14_total_sr");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    saveServiceRequestForT14(srRepo, residentId, "Type A", "Desc A", "2026-09-01");
+    saveServiceRequestForT14(srRepo, residentId, "Type B", "Desc B", "2026-09-02");
+    saveServiceRequestForT14(srRepo, residentId, "Type C", "Desc C", "2026-09-03");
+    saveServiceRequestForT14(srRepo, residentId, "Type D", "Desc D", "2026-09-04");
+
+    const csms::DashboardData data = svc.getDashboardData();
+    assert(data.totalServiceRequests == 4);
+}
+
+// Test 6 — 1 of each status → each count == 1, total == 4
+void testServiceRequestStatusCountsAreCorrect()
+{
+    const std::string dbPath = makeTempDbPath("t14_sr_status_counts");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    saveServiceRequestForT14(srRepo, residentId, "Type A", "Desc A", "2026-09-01", "Pending");
+    saveServiceRequestForT14(srRepo, residentId, "Type B", "Desc B", "2026-09-02", "In Progress");
+    saveServiceRequestForT14(srRepo, residentId, "Type C", "Desc C", "2026-09-03", "Completed");
+    saveServiceRequestForT14(srRepo, residentId, "Type D", "Desc D", "2026-09-04", "Cancelled");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.pendingRequests    == 1);
+    assert(data.inProgressRequests == 1);
+    assert(data.completedRequests  == 1);
+    assert(data.cancelledRequests  == 1);
+    assert(data.totalServiceRequests == 4);
+}
+
+// Test 7 — total == pending + inProgress + completed + cancelled
+void testServiceRequestCountsReconcile()
+{
+    const std::string dbPath = makeTempDbPath("t14_sr_reconcile");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    saveServiceRequestForT14(srRepo, residentId, "T A", "D A", "2026-09-01", "Pending");
+    saveServiceRequestForT14(srRepo, residentId, "T B", "D B", "2026-09-02", "Pending");
+    saveServiceRequestForT14(srRepo, residentId, "T C", "D C", "2026-09-03", "In Progress");
+    saveServiceRequestForT14(srRepo, residentId, "T D", "D D", "2026-09-04", "Completed");
+    saveServiceRequestForT14(srRepo, residentId, "T E", "D E", "2026-09-05", "Cancelled");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.totalServiceRequests ==
+           data.pendingRequests + data.inProgressRequests +
+           data.completedRequests + data.cancelledRequests);
+}
+
+// Test 8 — openRequests == pending + inProgress (not counting Completed/Cancelled)
+void testOpenRequestCountIsCorrect()
+{
+    const std::string dbPath = makeTempDbPath("t14_open_count");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    saveServiceRequestForT14(srRepo, residentId, "T A", "D A", "2026-09-01", "Pending");
+    saveServiceRequestForT14(srRepo, residentId, "T B", "D B", "2026-09-02", "In Progress");
+    saveServiceRequestForT14(srRepo, residentId, "T C", "D C", "2026-09-03", "Completed");
+    saveServiceRequestForT14(srRepo, residentId, "T D", "D D", "2026-09-04", "Cancelled");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.openRequests == data.pendingRequests + data.inProgressRequests);
+    assert(data.openRequests == 2);
+}
+
+// Test 9 — deactivate Active resident → active-1, inactive+1, total unchanged
+void testResidentDeactivationIsReflected()
+{
+    const std::string dbPath = makeTempDbPath("t14_resident_deactivation");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    saveResidentForT14(residentRepo, "Ana",  "Reyes",  "Active");
+    const int id2 = saveResidentForT14(residentRepo, "Ben", "Santos", "Active");
+    saveResidentForT14(residentRepo, "Clara", "Tan",   "Active");
+
+    const csms::DashboardData before = svc.getDashboardData();
+
+    residentRepo.deactivateById(id2);
+
+    const csms::DashboardData after = svc.getDashboardData();
+
+    assert(after.totalResidents    == before.totalResidents);
+    assert(after.activeResidents   == before.activeResidents - 1);
+    assert(after.inactiveResidents == before.inactiveResidents + 1);
+}
+
+// Test 10 — updateStatus Pending→InProgress → pending-1, inProgress+1, total unchanged
+void testServiceRequestTransitionIsReflected()
+{
+    const std::string dbPath = makeTempDbPath("t14_sr_transition");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    const int srId = saveServiceRequestForT14(srRepo, residentId,
+                                              "Type A", "Desc A",
+                                              "2026-09-01", "Pending");
+
+    const csms::DashboardData before = svc.getDashboardData();
+
+    srRepo.updateStatus(srId, "In Progress");
+
+    const csms::DashboardData after = svc.getDashboardData();
+
+    assert(after.totalServiceRequests == before.totalServiceRequests);
+    assert(after.pendingRequests      == before.pendingRequests - 1);
+    assert(after.inProgressRequests   == before.inProgressRequests + 1);
+}
+
+// Test 11 — In Progress → Completed → openRequests decreases, total unchanged
+void testTerminalTransitionUpdatesOpenCount()
+{
+    const std::string dbPath = makeTempDbPath("t14_terminal_transition");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    const int srId = saveServiceRequestForT14(srRepo, residentId,
+                                              "Type A", "Desc A",
+                                              "2026-09-01", "In Progress");
+
+    const csms::DashboardData before = svc.getDashboardData();
+
+    srRepo.updateStatus(srId, "Completed");
+
+    const csms::DashboardData after = svc.getDashboardData();
+
+    assert(after.totalServiceRequests == before.totalServiceRequests);
+    assert(after.openRequests         <  before.openRequests);
+    assert(after.completedRequests    == before.completedRequests + 1);
+}
+
+// Test 12 — persist 7 SRs → recentRequests.size() <= 5
+void testRecentRequestsReturnNoMoreThanFive()
+{
+    const std::string dbPath = makeTempDbPath("t14_recent_limit");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    for (int i = 1; i <= 7; ++i)
+    {
+        saveServiceRequestForT14(srRepo, residentId,
+                                 "Type " + std::to_string(i),
+                                 "Desc " + std::to_string(i),
+                                 "2026-09-0" + std::to_string(i));
+    }
+
+    const csms::DashboardData data = svc.getDashboardData();
+    assert(data.recentRequests.size() <= 5u);
+}
+
+// Test 13 — recentRequests ordered date_requested DESC then id DESC
+void testRecentRequestsUseCorrectOrdering()
+{
+    const std::string dbPath = makeTempDbPath("t14_recent_ordering");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    // Different dates — newer date must come first
+    saveServiceRequestForT14(srRepo, residentId, "Old",    "Desc", "2026-09-01");
+    saveServiceRequestForT14(srRepo, residentId, "Middle", "Desc", "2026-09-15");
+    saveServiceRequestForT14(srRepo, residentId, "Newest", "Desc", "2026-09-20");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(data.recentRequests.size() == 3u);
+    assert(data.recentRequests[0].getDateRequested() == "2026-09-20");
+    assert(data.recentRequests[1].getDateRequested() == "2026-09-15");
+    assert(data.recentRequests[2].getDateRequested() == "2026-09-01");
+}
+
+// Test 14 — a Completed SR may appear in recentRequests
+void testTerminalRequestsMayAppearInRecentResults()
+{
+    const std::string dbPath = makeTempDbPath("t14_recent_terminal");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    const int completedId = saveServiceRequestForT14(
+        srRepo, residentId,
+        "Completed Type", "Desc", "2026-09-20", "Completed");
+
+    const csms::DashboardData data = svc.getDashboardData();
+
+    assert(!data.recentRequests.empty());
+    assert(data.recentRequests[0].getId().has_value());
+    assert(data.recentRequests[0].getId().value() == completedId);
+    assert(data.recentRequests[0].getStatus()     == "Completed");
+}
+
+// Test 15 — getDashboardData() is read-only — calling it does not change counts
+void testDashboardGetDoesNotModifyPersistence()
+{
+    const std::string dbPath = makeTempDbPath("t14_readonly");
+    csms::Database db(dbPath);
+    csms::ResidentRepository residentRepo(db);
+    csms::ServiceRequestRepository srRepo(db);
+    csms::DashboardService svc(residentRepo, srRepo);
+
+    const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+    saveServiceRequestForT14(srRepo, residentId, "Type A", "Desc A", "2026-09-01");
+
+    const csms::DashboardData before = svc.getDashboardData();
+    svc.getDashboardData(); // call again — must not modify anything
+    const csms::DashboardData after = svc.getDashboardData();
+
+    assert(after.totalResidents       == before.totalResidents);
+    assert(after.totalServiceRequests == before.totalServiceRequests);
+    assert(after.pendingRequests      == before.pendingRequests);
+    assert(after.activeResidents      == before.activeResidents);
+    assert(after.recentRequests.size() == before.recentRequests.size());
+}
+
+// ---------------------------------------------------------------------------
+// T14 Drogon test wrapper
+// ---------------------------------------------------------------------------
+
+DROGON_TEST(DashboardTest)
+{
+    testDashboardLoadsSuccessfully();
+    testEmptyDashboardDisplaysZeroCounts();
+    testTotalResidentCountIsCorrect();
+    testResidentStatusCountsAreCorrect();
+    testTotalServiceRequestCountIsCorrect();
+    testServiceRequestStatusCountsAreCorrect();
+    testServiceRequestCountsReconcile();
+    testOpenRequestCountIsCorrect();
+    testResidentDeactivationIsReflected();
+    testServiceRequestTransitionIsReflected();
+    testTerminalTransitionUpdatesOpenCount();
+    testRecentRequestsReturnNoMoreThanFive();
+    testRecentRequestsUseCorrectOrdering();
+    testTerminalRequestsMayAppearInRecentResults();
+    testDashboardGetDoesNotModifyPersistence();
+}

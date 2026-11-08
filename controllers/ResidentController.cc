@@ -125,7 +125,7 @@ void ResidentController::index(
 
     std::ostringstream body;
 
-    body << R"(<nav><a href="/">&#8592; Home</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Resident Management</h1>)";
 
     // Toolbar: search form + register button
@@ -216,7 +216,7 @@ void ResidentController::showNew(
 {
     std::ostringstream body;
 
-    body << R"(<nav><a href="/residents">&#8592; Resident Management</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Register Resident</h1>)"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/residents">)"
@@ -277,7 +277,7 @@ void ResidentController::create(
 
     std::ostringstream body;
 
-    body << R"(<nav><a href="/residents">&#8592; Resident Management</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Register Resident</h1>)";
 
     body << R"(<div class="error-list"><strong>Please correct the following:</strong><ul>)";
@@ -328,7 +328,8 @@ void ResidentController::showEdit(
     if (!found.has_value())
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
              << R"(<a href="/residents" class="btn btn-secondary">Back to List</a>)"
@@ -345,7 +346,7 @@ void ResidentController::showEdit(
     const csms::Resident& r = found.value();
 
     std::ostringstream body;
-    body << R"(<nav><a href="/residents">&#8592; Resident Management</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << "<h1>Edit Resident</h1>"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/residents/)" << id << R"(">)";
@@ -411,7 +412,8 @@ void ResidentController::update(
     if (result.notFound)
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
              << R"(<a href="/residents" class="btn btn-secondary">Back to List</a>)"
@@ -435,7 +437,7 @@ void ResidentController::update(
     };
 
     std::ostringstream body;
-    body << R"(<nav><a href="/residents">&#8592; Resident Management</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << "<h1>Edit Resident</h1>";
 
     body << R"(<div class="error-list"><strong>Please correct the following:</strong><ul>)";
@@ -487,7 +489,8 @@ void ResidentController::deactivate(
     if (result.notFound)
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
              << R"(<a href="/residents" class="btn btn-secondary">Back to List</a>)"

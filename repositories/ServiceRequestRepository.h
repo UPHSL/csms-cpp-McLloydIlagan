@@ -89,6 +89,15 @@ public:
     std::vector<ServiceRequest> search(const std::string& searchTerm,
                                        const std::string& statusFilter);
 
+    // Returns total count of all persisted Service Requests
+    int countAll();
+
+    // Returns count of Service Requests with the given status
+    int countByStatus(const std::string& status);
+
+    // Returns at most `limit` most recent Service Requests ordered by date_requested DESC, id DESC
+    std::vector<ServiceRequest> findRecent(int limit);
+
 private:
     Database& database_;
 

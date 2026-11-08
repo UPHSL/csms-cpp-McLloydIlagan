@@ -381,4 +381,47 @@ std::vector<Resident> ResidentRepository::collectRows(sqlite3_stmt* stmt)
     return results;
 }
 
+int ResidentRepository::countAll()
+{
+    const char* sql = "SELECT COUNT(*) FROM residents;";
+    sqlite3_stmt* stmt = nullptr;
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare countAll residents: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+int ResidentRepository::countByStatus(const std::string& status)
+{
+    const char* sql = "SELECT COUNT(*) FROM residents WHERE status = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare countByStatus residents: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+    sqlite3_bind_text(stmt, 1, status.c_str(), -1, SQLITE_TRANSIENT);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 } // namespace csms
