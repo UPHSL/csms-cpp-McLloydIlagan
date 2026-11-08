@@ -281,4 +281,68 @@ std::vector<ServiceRequest> ServiceRequestRepository::search(
     return collectRows(stmt);
 }
 
+int ServiceRequestRepository::countAll()
+{
+    const char* sql = "SELECT COUNT(*) FROM service_requests;";
+    sqlite3_stmt* stmt = nullptr;
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare countAll service_requests: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+int ServiceRequestRepository::countByStatus(const std::string& status)
+{
+    const char* sql = "SELECT COUNT(*) FROM service_requests WHERE status = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare countByStatus service_requests: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+    sqlite3_bind_text(stmt, 1, status.c_str(), -1, SQLITE_TRANSIENT);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+std::vector<ServiceRequest> ServiceRequestRepository::findRecent(int limit)
+{
+    const char* sql =
+        "SELECT id, resident_id, service_type, description, "
+        "       date_requested, status "
+        "FROM service_requests "
+        "ORDER BY date_requested DESC, id DESC "
+        "LIMIT ?;";
+    sqlite3_stmt* stmt = nullptr;
+    const int prepareResult = sqlite3_prepare_v2(
+        database_.handle(), sql, -1, &stmt, nullptr);
+    if (prepareResult != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            std::string("Failed to prepare findRecent service_requests: ") +
+            sqlite3_errmsg(database_.handle()));
+    }
+    sqlite3_bind_int(stmt, 1, limit);
+    return collectRows(stmt);
+}
+
 } // namespace csms

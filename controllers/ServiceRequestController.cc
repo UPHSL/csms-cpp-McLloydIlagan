@@ -158,7 +158,7 @@ void ServiceRequestController::index(
 
     std::ostringstream body;
 
-    body << R"(<nav><a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Service Request Management</h1>)";
 
     if (!errorMsg.empty())
@@ -243,7 +243,7 @@ void ServiceRequestController::showNew(
 {
     std::ostringstream body;
 
-    body << R"(<nav><a href="/service-requests">&#8592; Service Requests</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Submit Service Request</h1>)"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/service-requests">)"
@@ -298,7 +298,7 @@ void ServiceRequestController::create(
 
     // Build error re-render
     std::ostringstream body;
-    body << R"(<nav><a href="/service-requests">&#8592; Service Requests</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << R"(<h1>Submit Service Request</h1>)";
 
     if (result.residentNotFound)
@@ -370,7 +370,8 @@ void ServiceRequestController::show(
     if (!found.has_value())
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
              << R"(<a href="/service-requests" class="btn btn-secondary">Back to List</a>)"
@@ -388,7 +389,7 @@ void ServiceRequestController::show(
     const std::string& currentStatus = sr.getStatus();
 
     std::ostringstream body;
-    body << R"(<nav><a href="/service-requests">&#8592; Service Requests</a></nav>)"
+    body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
          << "<h1>Service Request #" << id << "</h1>"
          << R"(<div class="detail-card">)"
          << R"(<div class="detail-row"><span class="detail-label">ID</span><span class="detail-value">)"
@@ -461,7 +462,8 @@ void ServiceRequestController::process(
     if (result.notFound)
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
              << R"(<a href="/service-requests" class="btn btn-secondary">Back to List</a>)"
@@ -496,7 +498,8 @@ void ServiceRequestController::complete(
     if (result.notFound)
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
              << R"(<a href="/service-requests" class="btn btn-secondary">Back to List</a>)"
@@ -530,7 +533,8 @@ void ServiceRequestController::cancel(
     if (result.notFound)
     {
         std::ostringstream body;
-        body << R"(<div class="not-found">)"
+        body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+             << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
              << R"(<a href="/service-requests" class="btn btn-secondary">Back to List</a>)"
