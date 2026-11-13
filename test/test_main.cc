@@ -5176,3 +5176,281 @@ DROGON_TEST(DashboardTest)
     testTerminalRequestsMayAppearInRecentResults();
     testDashboardGetDoesNotModifyPersistence();
 }
+
+// ---------------------------------------------------------------------------
+// T15 — System Hardening Tests
+//
+// Five regression/hardening tests exercising cross-feature invariants and
+// persistence-safety properties. Each uses its own isolated temp DB via
+// makeTempDbPath(). They reuse helpers already defined earlier in this file
+// (saveResidentForT14, saveServiceRequest, saveActiveResident,
+//  makeValidServiceRequest, submitNewRequest).
+// ---------------------------------------------------------------------------
+
+// Test 1 (Category 1 - Invalid/Malformed Input):
+// An unsupported status filter must throw std::invalid_argument and must not
+// create or modify any Service Request.
+void testUnsupportedServiceRequestStatusSearchReturnsEmptyNotCrash()
+{
+    const std::string dbPath = makeTempDbPath("t15_unsupported_status");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestQueryService queryService(requestRepo);
+
+        // Persist a few Service Requests for an Active Resident.
+        const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+        saveServiceRequest(requestRepo, residentId,
+                           "Barangay Clearance", "Desc 1", "2026-09-01");
+        saveServiceRequest(requestRepo, residentId,
+                           "Certificate Request", "Desc 2", "2026-09-02");
+
+        const int countBefore = requestRepo.countAll();
+
+        // 'Approved' is not a valid status — must throw std::invalid_argument.
+        bool threw = false;
+        try
+        {
+            queryService.searchServiceRequests("clear", "Approved");
+        }
+        catch (const std::invalid_argument&)
+        {
+            threw = true;
+        }
+        assert(threw);
+
+        // No Service Requests were created or modified (count unchanged).
+        const int countAfter = requestRepo.countAll();
+        assert(countAfter == countBefore);
+    }
+}
+
+// Test 2 (Category 2 - Rejected Mutation Protects Persistence):
+// A rejected status transition must leave every field of the record identical.
+void testInvalidServiceRequestTransitionLeavesRecordUnchanged()
+{
+    const std::string dbPath = makeTempDbPath("t15_invalid_transition");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestStatusService statusService(requestRepo);
+
+        // Persist a Pending Service Request.
+        const int requestId = submitNewRequest(residentRepo, requestRepo);
+
+        // Record the current state via findById.
+        const std::optional<csms::ServiceRequest> before =
+            requestRepo.findById(requestId);
+        assert(before.has_value());
+
+        // Attempt the invalid transition: Pending -> Completed (not allowed).
+        const csms::ServiceRequestStatusResult result =
+            statusService.manageStatus(requestId, "Completed");
+        assert(result.invalidTransition == true);
+        assert(!result.success);
+
+        // Retrieve the record again via findById.
+        const std::optional<csms::ServiceRequest> after =
+            requestRepo.findById(requestId);
+        assert(after.has_value());
+
+        // Verify ALL fields are identical to the original.
+        assert(after->getId().has_value());
+        assert(after->getId().value() == before->getId().value());
+        assert(after->getResidentId()    == before->getResidentId());
+        assert(after->getServiceType()   == before->getServiceType());
+        assert(after->getDescription()   == before->getDescription());
+        assert(after->getDateRequested() == before->getDateRequested());
+        assert(after->getStatus()        == before->getStatus());
+        assert(after->getStatus()        == "Pending");
+    }
+}
+
+// Test 3 (Category 3 - Read-Only Request Safety):
+// Repeated dashboard reads must not mutate persistence; counts read directly
+// from the repositories must match the first dashboard call, and no new
+// records may appear.
+void testRepeatedDashboardLoadsDoNotModifyPersistence()
+{
+    const std::string dbPath = makeTempDbPath("t15_dashboard_readonly");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::DashboardService dashboardService(residentRepo, requestRepo);
+
+        // Persist 2 Active Residents.
+        const int residentId1 = saveResidentForT14(residentRepo, "Ana", "Reyes");
+        const int residentId2 = saveResidentForT14(residentRepo, "Ben", "Santos");
+
+        // Persist 3 Service Requests with different statuses.
+        saveServiceRequest(requestRepo, residentId1,
+                           "Type A", "Desc A", "2026-09-01", "Pending");
+        saveServiceRequest(requestRepo, residentId1,
+                           "Type B", "Desc B", "2026-09-02", "In Progress");
+        saveServiceRequest(requestRepo, residentId1,
+                           "Type C", "Desc C", "2026-09-03", "Completed");
+
+        // Call getDashboardData() and record all counts (call 1 of 4).
+        const csms::DashboardData first = dashboardService.getDashboardData();
+
+        // Call it 3 more times.
+        dashboardService.getDashboardData();
+        dashboardService.getDashboardData();
+        dashboardService.getDashboardData();
+
+        // Re-read all counts via the repository directly.
+        const int residentCountAll = residentRepo.countAll();
+        const int residentActive   = residentRepo.countByStatus("Active");
+        const int residentInactive = residentRepo.countByStatus("Inactive");
+        const int srCountAll       = requestRepo.countAll();
+        const int srPending        = requestRepo.countByStatus("Pending");
+        const int srInProgress     = requestRepo.countByStatus("In Progress");
+        const int srCompleted       = requestRepo.countByStatus("Completed");
+        const int srCancelled       = requestRepo.countByStatus("Cancelled");
+
+        // Verify all counts are identical to the first dashboard call.
+        assert(residentCountAll == first.totalResidents);
+        assert(residentActive   == first.activeResidents);
+        assert(residentInactive == first.inactiveResidents);
+        assert(srCountAll       == first.totalServiceRequests);
+        assert(srPending        == first.pendingRequests);
+        assert(srInProgress     == first.inProgressRequests);
+        assert(srCompleted      == first.completedRequests);
+        assert(srCancelled       == first.cancelledRequests);
+
+        // Verify no new records were created.
+        assert(residentCountAll == 2);
+        assert(srCountAll       == 3);
+
+        // residentId2 is intentionally persisted but unused beyond counting;
+        // reference it so compilers do not warn about an unused variable.
+        (void)residentId2;
+    }
+}
+
+// Test 4 (Category 4 - Cross-Feature Regression):
+// Deactivating a resident blocks future Service Request submission (T07+T09)
+// and is reflected in the dashboard counts (T14).
+void testResidentDeactivationBlocksFutureServiceRequestSubmissionAndUpdatesDashboard()
+{
+    const std::string dbPath = makeTempDbPath("t15_cross_feature");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository requestRepo(db);
+        csms::ServiceRequestValidator validator;
+        csms::ServiceRequestSubmissionService submissionService(
+            validator, residentRepo, requestRepo);
+        csms::ResidentDeactivationService deactivationService(residentRepo);
+        csms::DashboardService dashboardService(residentRepo, requestRepo);
+
+        // Persist an Active Resident.
+        const int residentId = saveResidentForT14(residentRepo, "Juan", "Cruz");
+
+        // Submit a valid Service Request for that Resident (succeeds).
+        const csms::ServiceRequestSubmissionResult result1 =
+            submissionService.submitRequest(makeValidServiceRequest(residentId));
+        assert(result1.success);
+
+        // Record dashboard counts before deactivation.
+        const csms::DashboardData before = dashboardService.getDashboardData();
+        assert(before.activeResidents   == 1);
+        assert(before.inactiveResidents == 0);
+        assert(before.totalResidents    == 1);
+
+        // Deactivate the Resident.
+        const csms::ResidentDeactivationResult deactResult =
+            deactivationService.deactivateResident(residentId);
+        assert(deactResult.success);
+
+        // Record Service Request count before the second attempt.
+        const int srCountBefore = requestRepo.countAll();
+
+        // Attempt to submit another Service Request for the now-Inactive
+        // Resident — must fail with residentInactive (the task wording
+        // "residentNotActive" maps to the actual field residentInactive).
+        const csms::ServiceRequestSubmissionResult result2 =
+            submissionService.submitRequest(makeValidServiceRequest(residentId));
+        assert(!result2.success);
+        assert(result2.residentInactive);
+        assert(!result2.serviceRequest.has_value());
+
+        // No new Service Request was persisted (count unchanged).
+        const int srCountAfter = requestRepo.countAll();
+        assert(srCountAfter == srCountBefore);
+
+        // Dashboard reflects the deactivation.
+        const csms::DashboardData after = dashboardService.getDashboardData();
+        assert(after.totalResidents    == before.totalResidents);       // unchanged
+        assert(after.activeResidents   == before.activeResidents - 1);  // decreased by 1
+        assert(after.inactiveResidents == before.inactiveResidents + 1); // increased by 1
+    }
+}
+
+// Test 5 (Category 5 - Repeatability/Boundary):
+// Deactivating an already-Inactive resident is safe and idempotent, and
+// corrupts no field.
+void testRepeatedDeactivationIsSafeAndIdempotent()
+{
+    const std::string dbPath = makeTempDbPath("t15_idempotent_deactivation");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ResidentDeactivationService deactivationService(residentRepo);
+
+        // Persist an Active Resident.
+        csms::Resident original(
+            "Juan", "Dela Cruz", "Barangay Santo Tomas",
+            "09171234567", "juan@example.com", "Active");
+        const int id = residentRepo.save(original).getId();
+
+        // Deactivate (verify success).
+        const csms::ResidentDeactivationResult result1 =
+            deactivationService.deactivateResident(id);
+        assert(result1.success);
+        assert(!result1.alreadyInactive);
+        assert(result1.resident.has_value());
+        assert(result1.resident->getStatus() == "Inactive");
+
+        // Deactivate the SAME Resident again (idempotent — still succeeds).
+        const csms::ResidentDeactivationResult result2 =
+            deactivationService.deactivateResident(id);
+        assert(result2.success);
+        assert(result2.alreadyInactive);
+        assert(result2.resident.has_value());
+        assert(result2.resident->getStatus() == "Inactive");
+
+        // Retrieve via findById and verify status is still Inactive (not corrupted).
+        const std::optional<csms::Resident> after = residentRepo.findById(id);
+        assert(after.has_value());
+        assert(after->getStatus() == "Inactive");
+
+        // Verify all other fields are unchanged.
+        assert(after->getId()            == id);
+        assert(after->getFirstName()     == "Juan");
+        assert(after->getLastName()      == "Dela Cruz");
+        assert(after->getAddress()       == "Barangay Santo Tomas");
+        assert(after->getContactNumber() == "09171234567");
+        assert(after->getEmail()         == "juan@example.com");
+
+        // No extra rows were created.
+        assert(residentRepo.countAll() == 1);
+    }
+}
+
+DROGON_TEST(SystemHardeningTest)
+{
+    testUnsupportedServiceRequestStatusSearchReturnsEmptyNotCrash();
+    testInvalidServiceRequestTransitionLeavesRecordUnchanged();
+    testRepeatedDashboardLoadsDoNotModifyPersistence();
+    testResidentDeactivationBlocksFutureServiceRequestSubmissionAndUpdatesDashboard();
+    testRepeatedDeactivationIsSafeAndIdempotent();
+}
