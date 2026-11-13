@@ -57,5 +57,6 @@ set_tests_properties(
     ResidentManagementInterfaceTest
     ServiceRequestManagementInterfaceTest
     DashboardTest
+    SystemHardeningTest
     PROPERTIES TIMEOUT 10
 )
