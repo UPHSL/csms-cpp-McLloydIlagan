@@ -1,4 +1,5 @@
 #include "ServiceRequestController.h"
+#include "models/AppInfo.h"
 
 #include <sstream>
 #include <string>
@@ -159,6 +160,7 @@ void ServiceRequestController::index(
     std::ostringstream body;
 
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Service Request Management</h1>)";
 
     if (!errorMsg.empty())
@@ -244,6 +246,7 @@ void ServiceRequestController::showNew(
     std::ostringstream body;
 
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Submit Service Request</h1>)"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/service-requests">)"
@@ -299,6 +302,7 @@ void ServiceRequestController::create(
     // Build error re-render
     std::ostringstream body;
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Submit Service Request</h1>)";
 
     if (result.residentNotFound)
@@ -371,6 +375,7 @@ void ServiceRequestController::show(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
@@ -390,6 +395,7 @@ void ServiceRequestController::show(
 
     std::ostringstream body;
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << "<h1>Service Request #" << id << "</h1>"
          << R"(<div class="detail-card">)"
          << R"(<div class="detail-row"><span class="detail-label">ID</span><span class="detail-value">)"
@@ -463,6 +469,7 @@ void ServiceRequestController::process(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
@@ -499,6 +506,7 @@ void ServiceRequestController::complete(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"
@@ -534,6 +542,7 @@ void ServiceRequestController::cancel(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Service Request Not Found</h2>"
              << "<p>No service request with ID " << id << " exists.</p>"

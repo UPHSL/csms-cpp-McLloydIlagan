@@ -58,5 +58,6 @@ set_tests_properties(
     ServiceRequestManagementInterfaceTest
     DashboardTest
     SystemHardeningTest
+    FinalExamIntegrationTest
     PROPERTIES TIMEOUT 10
 )

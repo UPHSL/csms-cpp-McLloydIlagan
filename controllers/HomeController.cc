@@ -1,4 +1,5 @@
 #include "HomeController.h"
+#include "models/AppInfo.h"
 
 void HomeController::asyncHandleHttpRequest(
     const HttpRequestPtr&,
@@ -103,7 +104,7 @@ void HomeController::asyncHandleHttpRequest(
 
             <div class="detail">
                 <strong>Version</strong>
-                0.1.0
+                )" + std::string(csms::APP_VERSION) + R"(
             </div>
         </section>
 

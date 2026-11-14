@@ -1,4 +1,5 @@
 #include "DashboardController.h"
+#include "models/AppInfo.h"
 
 #include <sstream>
 #include <string>
@@ -98,6 +99,7 @@ void DashboardController::asyncHandleHttpRequest(
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; )"
          << R"(<a href="/residents">Residents</a> &nbsp;|&nbsp; )"
          << R"(<a href="/service-requests">Service Requests</a></nav>)"
+         << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>CSMS Dashboard</h1>)";
 
     // Resident Summary

@@ -1,4 +1,5 @@
 #include "ResidentController.h"
+#include "models/AppInfo.h"
 
 #include <sstream>
 #include <string>
@@ -126,6 +127,7 @@ void ResidentController::index(
     std::ostringstream body;
 
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Resident Management</h1>)";
 
     // Toolbar: search form + register button
@@ -217,6 +219,7 @@ void ResidentController::showNew(
     std::ostringstream body;
 
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Register Resident</h1>)"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/residents">)"
@@ -278,6 +281,7 @@ void ResidentController::create(
     std::ostringstream body;
 
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << R"(<h1>Register Resident</h1>)";
 
     body << R"(<div class="error-list"><strong>Please correct the following:</strong><ul>)";
@@ -329,6 +333,7 @@ void ResidentController::showEdit(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
@@ -347,6 +352,7 @@ void ResidentController::showEdit(
 
     std::ostringstream body;
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << "<h1>Edit Resident</h1>"
          << R"(<div class="card">)"
          << R"(<form method="post" action="/residents/)" << id << R"(">)";
@@ -413,6 +419,7 @@ void ResidentController::update(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
@@ -438,6 +445,7 @@ void ResidentController::update(
 
     std::ostringstream body;
     body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
          << "<h1>Edit Resident</h1>";
 
     body << R"(<div class="error-list"><strong>Please correct the following:</strong><ul>)";
@@ -490,6 +498,7 @@ void ResidentController::deactivate(
     {
         std::ostringstream body;
         body << R"(<nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/residents">Residents</a> &nbsp;|&nbsp; <a href="/service-requests">Service Requests</a></nav>)"
+     << " <span class=\"version\">v" << csms::APP_VERSION << "</span>"
              << R"(<div class="not-found">)"
              << "<h2>Resident Not Found</h2>"
              << "<p>No resident with ID " << id << " exists.</p>"
