@@ -5454,3 +5454,129 @@ DROGON_TEST(SystemHardeningTest)
     testResidentDeactivationBlocksFutureServiceRequestSubmissionAndUpdatesDashboard();
     testRepeatedDeactivationIsSafeAndIdempotent();
 }
+
+// ---------------------------------------------------------------------------
+// T16 Final Examination includes
+// ---------------------------------------------------------------------------
+#include "models/AppInfo.h"
+
+// ---------------------------------------------------------------------------
+// T16 Final Examination Test
+// Name: testResidentLifecycleAffectsServiceRequestEligibilityAndDashboardCounts
+//
+// What it verifies:
+//   An integrated CSMS scenario crossing four modules:
+//     1. Resident registration (T04)
+//     2. Service Request submission eligibility (T09)
+//     3. Resident deactivation (T07)
+//     4. Dashboard aggregation (T14)
+//
+// The test registers an Active Resident, submits a valid Service Request,
+// verifies dashboard counts, deactivates the Resident, attempts another
+// submission (which must fail), and verifies the dashboard reflects the
+// change — all over one real isolated SQLite database.
+//
+// It also verifies the release version constants (Part G — automate
+// release version verification).
+// ---------------------------------------------------------------------------
+
+void testResidentLifecycleAffectsServiceRequestEligibilityAndDashboardCounts()
+{
+    const std::string dbPath = makeTempDbPath("t16_final_exam_integration");
+
+    {
+        csms::Database db(dbPath);
+        csms::ResidentRepository residentRepo(db);
+        csms::ServiceRequestRepository srRepo(db);
+        csms::ResidentValidator validator;
+        csms::ServiceRequestValidator srValidator;
+        csms::ResidentRegistrationService regService(validator, residentRepo);
+        csms::ResidentDeactivationService deactService(residentRepo);
+        csms::ServiceRequestSubmissionService submitService(
+            srValidator, residentRepo, srRepo);
+        csms::DashboardService dashboardService(residentRepo, srRepo);
+
+        // --- Step 1: Register an Active Resident (T04) ---
+        csms::Resident newResident(
+            "Maria", "Santos", "123 Rizal St, Quezon City",
+            "09171234567", "maria@example.com");
+        const csms::ResidentRegistrationResult regResult =
+            regService.registerResident(newResident);
+        assert(regResult.success);
+        assert(regResult.resident.has_value());
+        const int residentId = regResult.resident->getId();
+        assert(residentId > 0);
+        assert(regResult.resident->getStatus() == "Active");
+
+        // --- Verify dashboard reflects new Resident (T14) ---
+        csms::DashboardData dash1 = dashboardService.getDashboardData();
+        assert(dash1.totalResidents == 1);
+        assert(dash1.activeResidents == 1);
+        assert(dash1.inactiveResidents == 0);
+
+        // --- Step 2: Submit a valid Service Request (T09) ---
+        csms::ServiceRequest sr(
+            residentId, "Barangay Clearance",
+            "Requesting clearance for employment",
+            "2026-11-13", "Pending");
+        const csms::ServiceRequestSubmissionResult srResult =
+            submitService.submitRequest(sr);
+        assert(srResult.success);
+        assert(srResult.serviceRequest.has_value());
+        assert(srResult.serviceRequest->getId().has_value());
+        assert(srResult.serviceRequest->getStatus() == "Pending");
+        assert(srResult.serviceRequest->getResidentId() == residentId);
+
+        // --- Verify dashboard reflects new Service Request (T14) ---
+        csms::DashboardData dash2 = dashboardService.getDashboardData();
+        assert(dash2.totalServiceRequests == 1);
+        assert(dash2.pendingRequests == 1);
+        assert(dash2.openRequests == 1);
+
+        // --- Step 3: Deactivate the Resident (T07) ---
+        const csms::ResidentDeactivationResult deactResult =
+            deactService.deactivateResident(residentId);
+        assert(deactResult.success);
+        assert(deactResult.resident.has_value());
+        assert(deactResult.resident->getStatus() == "Inactive");
+
+        // --- Verify dashboard reflects deactivation (T14) ---
+        csms::DashboardData dash3 = dashboardService.getDashboardData();
+        assert(dash3.totalResidents == 1);       // unchanged
+        assert(dash3.activeResidents == 0);        // decreased
+        assert(dash3.inactiveResidents == 1);      // increased
+        assert(dash3.totalServiceRequests == 1);   // unchanged
+
+        // --- Step 4: Attempt submission for Inactive Resident (T09) ---
+        csms::ServiceRequest sr2(
+            residentId, "Medical Assistance",
+            "Follow-up request",
+            "2026-11-13", "Pending");
+        const csms::ServiceRequestSubmissionResult sr2Result =
+            submitService.submitRequest(sr2);
+        assert(!sr2Result.success);
+        assert(sr2Result.residentInactive);
+        assert(!sr2Result.serviceRequest.has_value());
+
+        // --- Verify no new Service Request was persisted ---
+        assert(srRepo.countAll() == 1);
+
+        // --- Step 5: Original Service Request still queryable (T11) ---
+        const int srId = srResult.serviceRequest->getId().value();
+        std::optional<csms::ServiceRequest> found = srRepo.findById(srId);
+        assert(found.has_value());
+        assert(found->getStatus() == "Pending");
+        assert(found->getResidentId() == residentId);
+
+        // --- Part G: Verify release version constants ---
+        assert(std::string(csms::APP_VERSION) == "1.0.0");
+        assert(std::string(csms::APP_NAME) ==
+               "Community Services Management System");
+        assert(std::string(csms::APP_SHORT_NAME) == "CSMS");
+    }
+}
+
+DROGON_TEST(FinalExamIntegrationTest)
+{
+    testResidentLifecycleAffectsServiceRequestEligibilityAndDashboardCounts();
+}

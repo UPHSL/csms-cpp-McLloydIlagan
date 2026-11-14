@@ -1,4 +1,5 @@
 #include "HealthController.h"
+#include "models/AppInfo.h"
 
 void HealthController::asyncHandleHttpRequest(
     const HttpRequestPtr&,
@@ -7,8 +8,8 @@ void HealthController::asyncHandleHttpRequest(
     Json::Value result;
 
     result["status"] = "ok";
-    result["application"] = "Community Services Management System";
-    result["version"] = "0.1.0";
+    result["application"] = csms::APP_NAME;
+    result["version"] = csms::APP_VERSION;
 
     auto response = HttpResponse::newHttpJsonResponse(result);
 
